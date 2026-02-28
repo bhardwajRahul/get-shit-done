@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [1.22.0] - 2026-02-27
+
+### Added
+- Codex multi-agent support: `request_user_input` mapping, multi-agent config, and agent role generation for Codex runtime
+- Analysis paralysis guard in agents to prevent over-deliberation during planning
+- Exhaustive cross-check and task-level TDD patterns in agent workflows
+- Code-aware discuss phase with codebase scouting — `/gsd:discuss-phase` now analyzes relevant source files before asking questions
+
+### Fixed
+- Update checker clears both cache paths to prevent stale version notifications
+- Statusline migration regex no longer clobbers third-party statuslines
+- Subagent paths use `$HOME` instead of `~` to prevent `MODULE_NOT_FOUND` errors
+- Skill discovery supports both `.claude/skills/` and `.agents/skills/` paths
+- `resolve-model` variable names aligned with template placeholders
+- Regex metacharacters properly escaped in `stateExtractField`
+- `model_overrides` and `nyquist_validation` correctly loaded from config
+- `phase-plan-index` no longer returns null/empty for `files_modified`, `objective`, and `task_count`
+
 ## [1.21.1] - 2026-02-27
 
 ### Added
@@ -1373,7 +1391,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - YOLO mode for autonomous execution
 - Interactive mode with checkpoints
 
-[Unreleased]: https://github.com/glittercowboy/get-shit-done/compare/v1.21.1...HEAD
+[Unreleased]: https://github.com/glittercowboy/get-shit-done/compare/v1.22.0...HEAD
+[1.22.0]: https://github.com/glittercowboy/get-shit-done/releases/tag/v1.22.0
 [1.21.1]: https://github.com/glittercowboy/get-shit-done/releases/tag/v1.21.1
 [1.21.0]: https://github.com/glittercowboy/get-shit-done/releases/tag/v1.21.0
 [1.20.6]: https://github.com/glittercowboy/get-shit-done/releases/tag/v1.20.6
