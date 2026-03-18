@@ -406,6 +406,30 @@ For each selected area, conduct a focused discussion loop.
 
 **Batch mode support:** Parse optional `--batch` from `$ARGUMENTS`.
 - Accept `--batch`, `--batch=N`, or `--batch N`
+
+**Analyze mode support:** Parse optional `--analyze` from `$ARGUMENTS`.
+When `--analyze` is active, before presenting each question (or question group in batch mode), provide a brief **trade-off analysis** for the decision:
+- 2-3 options with pros/cons based on codebase context and common patterns
+- A recommended approach with reasoning
+- Known pitfalls or constraints from prior phases
+
+Example with `--analyze`:
+```
+**Trade-off analysis: Authentication strategy**
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| Session cookies | Simple, httpOnly prevents XSS | Requires CSRF protection, sticky sessions |
+| JWT (stateless) | Scalable, no server state | Token size, revocation complexity |
+| OAuth 2.0 + PKCE | Industry standard for SPAs | More setup, redirect flow UX |
+
+💡 Recommended: OAuth 2.0 + PKCE — your app has social login in requirements (REQ-04) and this aligns with the existing NextAuth setup in `src/lib/auth.ts`.
+
+How should users authenticate?
+```
+
+This gives the user context to make informed decisions without extra prompting. When `--analyze` is absent, present questions directly as before.
+- Accept `--batch`, `--batch=N`, or `--batch N`
 - Default to 4 questions per batch when no number is provided
 - Clamp explicit sizes to 2-5 so a batch stays answerable
 - If `--batch` is absent, keep the existing one-question-at-a-time flow
