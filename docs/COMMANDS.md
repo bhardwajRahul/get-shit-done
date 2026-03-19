@@ -215,6 +215,19 @@ Retroactive 6-pillar visual audit of implemented frontend.
 
 ---
 
+### `/gsd:audit-uat`
+
+Cross-phase audit of all outstanding UAT and verification items.
+
+**Prerequisites:** At least one phase has been executed with UAT or verification
+**Produces:** Categorized audit report with human test plan
+
+```bash
+/gsd:audit-uat
+```
+
+---
+
 ### `/gsd:audit-milestone`
 
 Verify milestone met its definition of done.

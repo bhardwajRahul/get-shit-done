@@ -525,6 +525,51 @@ grep "^status:" "$PHASE_DIR"/*-VERIFICATION.md | cut -d: -f2 | tr -d ' '
 | `gaps_found` | Present gap summary, offer `/gsd:plan-phase {phase} --gaps` |
 
 **If human_needed:**
+
+**Step A: Persist human verification items as UAT file.**
+
+Create `{phase_dir}/{phase_num}-HUMAN-UAT.md` using UAT template format:
+
+```markdown
+---
+status: partial
+phase: {phase_num}-{phase_name}
+source: [{phase_num}-VERIFICATION.md]
+started: [now ISO]
+updated: [now ISO]
+---
+
+## Current Test
+
+[awaiting human testing]
+
+## Tests
+
+{For each human_verification item from VERIFICATION.md:}
+
+### {N}. {item description}
+expected: {expected behavior from VERIFICATION.md}
+result: [pending]
+
+## Summary
+
+total: {count}
+passed: 0
+issues: 0
+pending: {count}
+skipped: 0
+blocked: 0
+
+## Gaps
+```
+
+Commit the file:
+```bash
+node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" commit "test({phase_num}): persist human verification items as UAT" --files "{phase_dir}/{phase_num}-HUMAN-UAT.md"
+```
+
+**Step B: Present to user:**
+
 ```
 ## ✓ Phase {X}: {Name} — Human Verification Required
 
@@ -532,8 +577,14 @@ All automated checks passed. {N} items need human testing:
 
 {From VERIFICATION.md human_verification section}
 
+Items saved to `{phase_num}-HUMAN-UAT.md` — they will appear in `/gsd:progress` and `/gsd:audit-uat`.
+
 "approved" → continue | Report issues → gap closure
 ```
+
+**If user says "approved":** Proceed to `update_roadmap`. The HUMAN-UAT.md file persists with `status: partial` and will surface in future progress checks until the user runs `/gsd:verify-work` on it.
+
+**If user reports issues:** Proceed to gap closure as currently implemented.
 
 **If gaps_found:**
 ```
@@ -572,8 +623,18 @@ The CLI handles:
 - Updating plan count to final
 - Advancing STATE.md to next phase
 - Updating REQUIREMENTS.md traceability
+- Scanning for verification debt (returns `warnings` array)
 
-Extract from result: `next_phase`, `next_phase_name`, `is_last_phase`.
+Extract from result: `next_phase`, `next_phase_name`, `is_last_phase`, `warnings`, `has_warnings`.
+
+**If has_warnings is true:**
+```
+## Phase {X} marked complete with {N} warnings:
+
+{list each warning}
+
+These items are tracked and will appear in `/gsd:progress` and `/gsd:audit-uat`.
+```
 
 ```bash
 node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" commit "docs(phase-{X}): complete phase execution" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md {phase_dir}/*-VERIFICATION.md

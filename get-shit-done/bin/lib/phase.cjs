@@ -721,6 +721,27 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
   const summaryCount = phaseInfo.summaries.length;
   let requirementsUpdated = false;
 
+  // Check for unresolved verification debt (non-blocking warnings)
+  const warnings = [];
+  try {
+    const phaseFullDir = path.join(cwd, phaseInfo.directory);
+    const phaseFiles = fs.readdirSync(phaseFullDir);
+
+    for (const file of phaseFiles.filter(f => f.includes('-UAT') && f.endsWith('.md'))) {
+      const content = fs.readFileSync(path.join(phaseFullDir, file), 'utf-8');
+      if (/result: pending/.test(content)) warnings.push(`${file}: has pending tests`);
+      if (/result: blocked/.test(content)) warnings.push(`${file}: has blocked tests`);
+      if (/status: partial/.test(content)) warnings.push(`${file}: testing incomplete (partial)`);
+      if (/status: diagnosed/.test(content)) warnings.push(`${file}: has diagnosed gaps`);
+    }
+
+    for (const file of phaseFiles.filter(f => f.includes('-VERIFICATION') && f.endsWith('.md'))) {
+      const content = fs.readFileSync(path.join(phaseFullDir, file), 'utf-8');
+      if (/status: human_needed/.test(content)) warnings.push(`${file}: needs human verification`);
+      if (/status: gaps_found/.test(content)) warnings.push(`${file}: has unresolved gaps`);
+    }
+  } catch {}
+
   // Update ROADMAP.md: mark phase complete
   if (fs.existsSync(roadmapPath)) {
     let roadmapContent = fs.readFileSync(roadmapPath, 'utf-8');
@@ -922,6 +943,8 @@ function cmdPhaseComplete(cwd, phaseNum, raw) {
     roadmap_updated: fs.existsSync(roadmapPath),
     state_updated: fs.existsSync(statePath),
     requirements_updated: requirementsUpdated,
+    warnings,
+    has_warnings: warnings.length > 0,
   };
 
   output(result, raw);

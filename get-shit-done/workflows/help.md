@@ -371,6 +371,17 @@ Capture a forward-looking idea with trigger conditions for automatic surfacing.
 
 Usage: `/gsd:plant-seed "add real-time notifications when we build the events system"`
 
+---
+
+**`/gsd:audit-uat`**
+Cross-phase audit of all outstanding UAT and verification items.
+- Scans every phase for pending, skipped, blocked, and human_needed items
+- Cross-references against codebase to detect stale documentation
+- Produces prioritized human test plan grouped by testability
+- Use before starting a new milestone to clear verification debt
+
+Usage: `/gsd:audit-uat`
+
 ### Milestone Auditing
 
 **`/gsd:audit-milestone [version]`**

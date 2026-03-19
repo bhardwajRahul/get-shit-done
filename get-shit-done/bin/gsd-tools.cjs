@@ -64,6 +64,9 @@
  * Todos:
  *   todo complete <filename>           Move todo from pending to completed
  *
+ * UAT Audit:
+ *   audit-uat                           Scan all phases for unresolved UAT/verification items
+ *
  * Scaffolding:
  *   scaffold context --phase <N>       Create CONTEXT.md template
  *   scaffold uat --phase <N>           Create UAT.md template
@@ -522,6 +525,12 @@ async function main() {
     case 'progress': {
       const subcommand = args[1] || 'json';
       commands.cmdProgressRender(cwd, subcommand, raw);
+      break;
+    }
+
+    case 'audit-uat': {
+      const uat = require('./lib/uat.cjs');
+      uat.cmdAuditUat(cwd, raw);
       break;
     }
 
