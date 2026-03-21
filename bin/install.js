@@ -3668,12 +3668,14 @@ function install(isGlobal, runtime = 'claude') {
 
   // Path prefix for file references in markdown content (e.g. gsd-tools.cjs).
   // Replaces $HOME/.claude/ or ~/.claude/ so the result is <pathPrefix>get-shit-done/bin/...
-  // For global installs: use ~/ so paths work across environments (e.g. Docker
-  // containers mounting ~/.claude from a Windows host where os.homedir() differs).
+  // For global installs: use $HOME/ so paths expand correctly inside double-quoted
+  // shell commands (~ does NOT expand inside double quotes, causing MODULE_NOT_FOUND).
   // For local installs: use resolved absolute path (may be outside $HOME).
-  const pathPrefix = isGlobal
-    ? path.resolve(targetDir).replace(os.homedir(), '~').replace(/\\/g, '/') + '/'
-    : `${path.resolve(targetDir).replace(/\\/g, '/')}/`;
+  const resolvedTarget = path.resolve(targetDir).replace(/\\/g, '/');
+  const homeDir = os.homedir().replace(/\\/g, '/');
+  const pathPrefix = isGlobal && resolvedTarget.startsWith(homeDir)
+    ? '$HOME' + resolvedTarget.slice(homeDir.length) + '/'
+    : `${resolvedTarget}/`;
 
   let runtimeLabel = 'Claude Code';
   if (isOpencode) runtimeLabel = 'OpenCode';
