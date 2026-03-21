@@ -147,8 +147,9 @@ function reapStaleTempFiles(prefix = 'gsd-', { maxAgeMs = 5 * 60 * 1000, dirsOnl
 }
 
 function output(result, raw, rawValue) {
+  let data;
   if (raw && rawValue !== undefined) {
-    process.stdout.write(String(rawValue));
+    data = String(rawValue);
   } else {
     const json = JSON.stringify(result, null, 2);
     // Large payloads exceed Claude Code's Bash tool buffer (~50KB).
@@ -157,16 +158,20 @@ function output(result, raw, rawValue) {
       reapStaleTempFiles();
       const tmpPath = path.join(require('os').tmpdir(), `gsd-${Date.now()}.json`);
       fs.writeFileSync(tmpPath, json, 'utf-8');
-      process.stdout.write('@file:' + tmpPath);
+      data = '@file:' + tmpPath;
     } else {
-      process.stdout.write(json);
+      data = json;
     }
   }
-  process.exit(0);
+  // process.stdout.write() is async when stdout is a pipe — process.exit()
+  // can tear down the process before the reader consumes the buffer.
+  // fs.writeSync(1, ...) blocks until the kernel accepts the bytes, and
+  // skipping process.exit() lets the event loop drain naturally.
+  fs.writeSync(1, data);
 }
 
 function error(message) {
-  process.stderr.write('Error: ' + message + '\n');
+  fs.writeSync(2, 'Error: ' + message + '\n');
   process.exit(1);
 }
 
