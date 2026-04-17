@@ -595,6 +595,15 @@ You're never locked in. The system adapts.
 | `/gsd-list-workspaces` | Show all GSD workspaces and their status |
 | `/gsd-remove-workspace` | Remove workspace and clean up worktrees |
 
+### Spiking & Sketching
+
+| Command | What it does |
+|---------|--------------|
+| `/gsd-spike [idea] [--quick]` | Throwaway experiments to validate feasibility before planning — no project init required |
+| `/gsd-sketch [idea] [--quick]` | Throwaway HTML mockups with multi-variant exploration — no project init required |
+| `/gsd-spike-wrap-up` | Package spike findings into a project-local skill for future build conversations |
+| `/gsd-sketch-wrap-up` | Package sketch design findings into a project-local skill for future builds |
+
 ### UI Design
 
 | Command | What it does |
