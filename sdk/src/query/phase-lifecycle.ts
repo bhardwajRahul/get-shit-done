@@ -111,8 +111,9 @@ export function replaceInCurrentMilestone(
 
   // Fast path: the current milestone is not inside a <details> block — the
   // pattern lives in the plain text after the last </details>.
-  if (after.trim().length > 0) {
-    return before + after.replace(pattern, replacement);
+  const replacedAfter = after.replace(pattern, replacement);
+  if (replacedAfter !== after) {
+    return before + replacedAfter;
   }
 
   // Slow path: the active milestone is inside the last <details> block.
