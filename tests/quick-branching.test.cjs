@@ -103,35 +103,35 @@ function extractStep25Bash() {
  * implementation skips `git symbolic-ref refs/remotes/origin/HEAD` and just
  * defaults to `main`, every assertion below collapses (#2921 CR nitpick).
  */
-function setupFixture() {
+function setupFixture(defaultBranch = 'trunk') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-quick-branching-'));
   const seedPath = path.join(root, 'seed');
   const originPath = path.join(root, 'origin.git');
   const clonePath = path.join(root, 'clone');
 
   fs.mkdirSync(seedPath);
-  git(seedPath, 'init', '-b', 'trunk');
+  git(seedPath, 'init', '-b', defaultBranch);
   git(seedPath, 'config', 'commit.gpgsign', 'false');
   fs.writeFileSync(path.join(seedPath, 'README.md'), '# seed\n');
   git(seedPath, 'add', 'README.md');
   git(seedPath, 'commit', '-m', 'initial');
 
   git(root, 'clone', '--bare', seedPath, originPath);
-  git(originPath, 'symbolic-ref', 'HEAD', 'refs/heads/trunk');
+  git(originPath, 'symbolic-ref', 'HEAD', `refs/heads/${defaultBranch}`);
 
   git(root, 'clone', originPath, clonePath);
   git(clonePath, 'config', 'commit.gpgsign', 'false');
   git(clonePath, 'config', 'user.email', 'test@test.com');
   git(clonePath, 'config', 'user.name', 'Test');
 
-  // Simulate finishing a previous quick task: branch off trunk, add a commit,
-  // and stay on it (this is the failure scenario from #2916).
+  // Simulate finishing a previous quick task: branch off the default branch,
+  // add a commit, and stay on it (this is the failure scenario from #2916).
   git(clonePath, 'checkout', '-b', 'quick/01-prev-task');
   fs.writeFileSync(path.join(clonePath, 'prev.txt'), 'prev work\n');
   git(clonePath, 'add', 'prev.txt');
   git(clonePath, 'commit', '-m', 'prev quick task work');
 
-  return { root, clonePath };
+  return { root, clonePath, defaultBranch };
 }
 
 function runStep(bash, cwd, branchName) {
@@ -214,45 +214,52 @@ describe('quick workflow: branching support', () => {
     );
   });
 
-  test('new quick-task branch contains 0 commits inherited from previous-task HEAD (#2916)', () => {
-    const bash = extractStep25Bash();
-    const { root, clonePath } = setupFixture();
+  // Run against both `main` (the conventional default) and `trunk` (a non-
+  // main default that exercises the symbolic-ref code path). Keeping both
+  // restores main coverage that was removed when the fixture switched
+  // wholesale to trunk in 80f14cac.
+  for (const defaultBranch of ['main', 'trunk']) {
+    test(`new quick-task branch branches off origin/${defaultBranch} (#2916)`, () => {
+      const bash = extractStep25Bash();
+      const { root, clonePath } = setupFixture(defaultBranch);
 
-    try {
-      // Sanity: we begin sitting on the previous quick-task branch, 1 ahead of origin/trunk.
-      assert.equal(
-        git(clonePath, 'rev-parse', '--abbrev-ref', 'HEAD'),
-        'quick/01-prev-task'
-      );
-      assert.equal(
-        git(clonePath, 'rev-list', '--count', 'origin/trunk..HEAD'),
-        '1',
-        'fixture should be 1 commit ahead of origin/trunk'
-      );
+      try {
+        const upstream = `origin/${defaultBranch}`;
 
-      runStep(bash, clonePath, 'quick/02-new-task');
+        assert.equal(
+          git(clonePath, 'rev-parse', '--abbrev-ref', 'HEAD'),
+          'quick/01-prev-task'
+        );
+        assert.equal(
+          git(clonePath, 'rev-list', '--count', `${upstream}..HEAD`),
+          '1',
+          `fixture should be 1 commit ahead of ${upstream}`
+        );
 
-      assert.equal(
-        git(clonePath, 'rev-parse', '--abbrev-ref', 'HEAD'),
-        'quick/02-new-task',
-        'Step 2.5 should switch to the new quick-task branch'
-      );
+        runStep(bash, clonePath, 'quick/02-new-task');
 
-      const inherited = git(clonePath, 'rev-list', '--count', 'origin/trunk..HEAD');
-      assert.equal(
-        inherited,
-        '0',
-        `new quick-task branch must branch off origin/trunk, but inherited ${inherited} commit(s) from previous-task HEAD`
-      );
-      assert.equal(
-        git(clonePath, 'rev-parse', 'HEAD'),
-        git(clonePath, 'rev-parse', 'origin/trunk'),
-        'new quick-task branch tip must equal origin/trunk tip'
-      );
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
+        assert.equal(
+          git(clonePath, 'rev-parse', '--abbrev-ref', 'HEAD'),
+          'quick/02-new-task',
+          'Step 2.5 should switch to the new quick-task branch'
+        );
+
+        const inherited = git(clonePath, 'rev-list', '--count', `${upstream}..HEAD`);
+        assert.equal(
+          inherited,
+          '0',
+          `new quick-task branch must branch off ${upstream}, but inherited ${inherited} commit(s) from previous-task HEAD`
+        );
+        assert.equal(
+          git(clonePath, 'rev-parse', 'HEAD'),
+          git(clonePath, 'rev-parse', upstream),
+          `new quick-task branch tip must equal ${upstream} tip`
+        );
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
 
   test('Step 2.5 reuses an existing quick-task branch instead of forking again', () => {
     const bash = extractStep25Bash();

@@ -108,39 +108,44 @@ function extractHandleBranchingBash() {
 }
 
 /**
- * Build a fixture: a bare "origin" repo with `main` (one commit), a clone with
- * `origin/HEAD` pointed at `main`, and a checked-out previous-phase branch
- * carrying its own unmerged commit. Returns the clone path.
+ * Build a fixture: a bare "origin" repo with the named default branch (one
+ * commit), a clone with `origin/HEAD` pointed at it, and a checked-out
+ * previous-phase branch carrying its own unmerged commit.
+ *
+ * `defaultBranch` is parameterized so callers can lock in that the workflow
+ * honors `git symbolic-ref refs/remotes/origin/HEAD` rather than silently
+ * defaulting to `main` (#2921 CR feedback — quick-branching.test.cjs got the
+ * same treatment in 80f14cac; this test deserves the same coverage).
  */
-function setupFixture() {
+function setupFixture(defaultBranch = 'main') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-2916-'));
   const seedPath = path.join(root, 'seed');
   const originPath = path.join(root, 'origin.git');
   const clonePath = path.join(root, 'clone');
 
   fs.mkdirSync(seedPath);
-  git(seedPath, 'init', '-b', 'main');
+  git(seedPath, 'init', '-b', defaultBranch);
   git(seedPath, 'config', 'commit.gpgsign', 'false');
   fs.writeFileSync(path.join(seedPath, 'README.md'), '# seed\n');
   git(seedPath, 'add', 'README.md');
   git(seedPath, 'commit', '-m', 'initial');
 
   git(root, 'clone', '--bare', seedPath, originPath);
-  git(originPath, 'symbolic-ref', 'HEAD', 'refs/heads/main');
+  git(originPath, 'symbolic-ref', 'HEAD', `refs/heads/${defaultBranch}`);
 
   git(root, 'clone', originPath, clonePath);
   git(clonePath, 'config', 'commit.gpgsign', 'false');
   git(clonePath, 'config', 'user.email', 'test@test.com');
   git(clonePath, 'config', 'user.name', 'Test');
 
-  // Simulate finishing a previous phase: branch off main, add a commit, and
-  // *stay* on it (this is the failure scenario described in the bug).
+  // Simulate finishing a previous phase: branch off the default branch, add
+  // a commit, and *stay* on it (the failure scenario described in the bug).
   git(clonePath, 'checkout', '-b', 'feature/phase-01-foundation');
   fs.writeFileSync(path.join(clonePath, 'phase01.txt'), 'phase 1 work\n');
   git(clonePath, 'add', 'phase01.txt');
   git(clonePath, 'commit', '-m', 'phase 01 work');
 
-  return { root, clonePath };
+  return { root, clonePath, defaultBranch };
 }
 
 function runHandleBranchingStep(bash, cwd, branchName) {
@@ -163,45 +168,51 @@ function runHandleBranchingStep(bash, cwd, branchName) {
 }
 
 describe('handle_branching branches off origin/HEAD, not current HEAD (#2916)', () => {
-  test('new phase branch contains 0 commits inherited from previous-phase HEAD', () => {
-    const bash = extractHandleBranchingBash();
-    const { root, clonePath } = setupFixture();
+  // Run against `main` (conventional default) and `trunk` (non-main default
+  // exercising the symbolic-ref code path) so a regression that hard-codes
+  // `main` instead of consulting origin/HEAD will fail the trunk variant.
+  for (const defaultBranch of ['main', 'trunk']) {
+    test(`new phase branch branches off origin/${defaultBranch} with 0 inherited commits`, () => {
+      const bash = extractHandleBranchingBash();
+      const { root, clonePath } = setupFixture(defaultBranch);
 
-    try {
-      // Sanity: we begin sitting on the previous phase branch, 1 ahead of origin/main.
-      assert.equal(
-        git(clonePath, 'rev-parse', '--abbrev-ref', 'HEAD'),
-        'feature/phase-01-foundation'
-      );
-      assert.equal(
-        git(clonePath, 'rev-list', '--count', 'origin/main..HEAD'),
-        '1',
-        'fixture should be 1 commit ahead of origin/main'
-      );
+      try {
+        const upstream = `origin/${defaultBranch}`;
 
-      runHandleBranchingStep(bash, clonePath, 'feature/phase-02-content-sync');
+        assert.equal(
+          git(clonePath, 'rev-parse', '--abbrev-ref', 'HEAD'),
+          'feature/phase-01-foundation'
+        );
+        assert.equal(
+          git(clonePath, 'rev-list', '--count', `${upstream}..HEAD`),
+          '1',
+          `fixture should be 1 commit ahead of ${upstream}`
+        );
 
-      assert.equal(
-        git(clonePath, 'rev-parse', '--abbrev-ref', 'HEAD'),
-        'feature/phase-02-content-sync',
-        'handle_branching should switch to the new phase branch'
-      );
+        runHandleBranchingStep(bash, clonePath, 'feature/phase-02-content-sync');
 
-      const inherited = git(clonePath, 'rev-list', '--count', 'origin/main..HEAD');
-      assert.equal(
-        inherited,
-        '0',
-        `new phase branch must branch off origin/main, but inherited ${inherited} commit(s) from previous-phase HEAD`
-      );
-      assert.equal(
-        git(clonePath, 'rev-parse', 'HEAD'),
-        git(clonePath, 'rev-parse', 'origin/main'),
-        'new phase branch tip must equal origin/main tip'
-      );
-    } finally {
-      fs.rmSync(root, { recursive: true, force: true });
-    }
-  });
+        assert.equal(
+          git(clonePath, 'rev-parse', '--abbrev-ref', 'HEAD'),
+          'feature/phase-02-content-sync',
+          'handle_branching should switch to the new phase branch'
+        );
+
+        const inherited = git(clonePath, 'rev-list', '--count', `${upstream}..HEAD`);
+        assert.equal(
+          inherited,
+          '0',
+          `new phase branch must branch off ${upstream}, but inherited ${inherited} commit(s) from previous-phase HEAD`
+        );
+        assert.equal(
+          git(clonePath, 'rev-parse', 'HEAD'),
+          git(clonePath, 'rev-parse', upstream),
+          `new phase branch tip must equal ${upstream} tip`
+        );
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
 
   test('handle_branching reuses an existing branch instead of forking again', () => {
     const bash = extractHandleBranchingBash();
