@@ -38,7 +38,7 @@ Routes to the update workflow which handles:
 Parse the first token of $ARGUMENTS:
 - If it is `--sync`: strip the flag, execute the sync-skills workflow (passing remaining args for --from/--to/--dry-run/--apply).
 - If it is `--reapply`: strip the flag, execute the reapply-patches workflow.
-- Otherwise: **Follow the update workflow** from `@~/.claude/get-shit-done/workflows/update.md`.
+- Otherwise: **Follow the update workflow**.
 
 The update workflow handles all logic including:
 1. Installed version detection (local/global)
