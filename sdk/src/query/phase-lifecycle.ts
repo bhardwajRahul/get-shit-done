@@ -1850,12 +1850,19 @@ export const milestoneComplete: QueryHandler = async (args, projectDir, workstre
         `Last activity: ${today} — Milestone ${version} completed and archived\n\n`;
       if (positionPattern.test(next)) {
         next = next.replace(positionPattern, (_m, header) => `${header}${closedPositionBody}`);
+      } else {
+        next = `${next.trimEnd()}\n\n## Current Position\n${closedPositionBody}`;
       }
 
-      next = next.replace(
-        /(##\s*Operator Next Steps\s*\n)([\s\S]*?)(?=\n##|$)/i,
-        `$1\n- Start the next milestone with /gsd-new-milestone\n\n`,
-      );
+      const operatorPattern = /(##\s*Operator Next Steps\s*\n)([\s\S]*?)(?=\n##|$)/i;
+      if (operatorPattern.test(next)) {
+        next = next.replace(
+          operatorPattern,
+          `$1\n- Start the next milestone with /gsd-new-milestone\n\n`,
+        );
+      } else {
+        next = `${next.trimEnd()}\n\n## Operator Next Steps\n\n- Start the next milestone with /gsd-new-milestone\n`;
+      }
 
       return next;
     }, workstream);

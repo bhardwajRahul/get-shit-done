@@ -215,13 +215,20 @@ function cmdMilestoneComplete(cwd, version, options, raw) {
       `Last activity: ${today} — Milestone ${version} completed and archived\n\n`;
     if (positionPattern.test(stateContent)) {
       stateContent = stateContent.replace(positionPattern, (_m, header) => `${header}${closedPositionBody}`);
+    } else {
+      stateContent = `${stateContent.trimEnd()}\n\n## Current Position\n${closedPositionBody}`;
     }
 
     // Normalize operator-next-step tails that can become stale after close.
-    stateContent = stateContent.replace(
-      /(##\s*Operator Next Steps\s*\n)([\s\S]*?)(?=\n##|$)/i,
-      `$1\n- Start the next milestone with /gsd-new-milestone\n\n`,
-    );
+    const operatorPattern = /(##\s*Operator Next Steps\s*\n)([\s\S]*?)(?=\n##|$)/i;
+    if (operatorPattern.test(stateContent)) {
+      stateContent = stateContent.replace(
+        operatorPattern,
+        `$1\n- Start the next milestone with /gsd-new-milestone\n\n`,
+      );
+    } else {
+      stateContent = `${stateContent.trimEnd()}\n\n## Operator Next Steps\n\n- Start the next milestone with /gsd-new-milestone\n`;
+    }
 
     writeStateMd(statePath, stateContent, cwd);
   }

@@ -247,6 +247,23 @@ describe('milestone complete command', () => {
     assert.ok(state.includes('/gsd-new-milestone'));
   });
 
+  test('appends canonical narrative sections when STATE.md headings are missing (#3088)', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), `# Roadmap v1.0\n`);
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# State\n\n**Status:** In progress\n**Last Activity:** 2025-01-01\n**Last Activity Description:** Working\n`
+    );
+
+    const result = runGsdTools('milestone complete v1.0 --name Test', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const state = fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8');
+    assert.ok(state.includes('## Current Position'));
+    assert.ok(state.includes('Phase: Milestone v1.0 complete'));
+    assert.ok(state.includes('## Operator Next Steps'));
+    assert.ok(state.includes('/gsd-new-milestone'));
+  });
+
   test('handles missing ROADMAP.md gracefully', () => {
     // Only STATE.md — no ROADMAP.md, no REQUIREMENTS.md
     fs.writeFileSync(
