@@ -19,8 +19,7 @@ export class QueryNativeDirectAdapter {
     try {
       return await this.withTimeout(legacyCommand, legacyArgs, this.deps.dispatch(registryCommand, registryArgs));
     } catch (error) {
-      if (error instanceof GSDToolsError) throw error;
-      throw this.deps.createNativeFailureError(errorMessage(error), legacyCommand, legacyArgs, error);
+      throw this.toNativeDispatchError(legacyCommand, legacyArgs, error);
     }
   }
 
@@ -32,6 +31,11 @@ export class QueryNativeDirectAdapter {
   async dispatchRaw(legacyCommand: string, legacyArgs: string[], registryCommand: string, registryArgs: string[]): Promise<string> {
     const result = await this.dispatchResult(legacyCommand, legacyArgs, registryCommand, registryArgs);
     return formatQueryRawOutput(registryCommand, result.data).trim();
+  }
+
+  private toNativeDispatchError(legacyCommand: string, legacyArgs: string[], error: unknown): GSDToolsError {
+    if (error instanceof GSDToolsError) return error;
+    return this.deps.createNativeFailureError(errorMessage(error), legacyCommand, legacyArgs, error);
   }
 
   private async withTimeout<T>(legacyCommand: string, legacyArgs: string[], work: Promise<T>): Promise<T> {
