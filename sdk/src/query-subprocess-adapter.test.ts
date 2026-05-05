@@ -41,7 +41,9 @@ describe('QuerySubprocessAdapter', () => {
       projectDir: dir,
       gsdToolsPath,
       timeoutMs: 2_000,
-      createToolsError: (message, command, args, exitCode, stderr) =>
+      createTimeoutError: (message, command, args, stderr) =>
+        new FakeToolsError(message, command, args, null, stderr) as never,
+      createFailureError: (message, command, args, exitCode, stderr) =>
         new FakeToolsError(message, command, args, exitCode, stderr) as never,
     });
   }

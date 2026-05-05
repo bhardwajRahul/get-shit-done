@@ -1,20 +1,26 @@
 import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { timeoutMessage } from './query-failure-classification.js';
-import type { GSDToolsError, GSDToolsErrorClassification } from './gsd-tools-error.js';
+import type { GSDToolsError } from './gsd-tools-error.js';
 
 export interface QuerySubprocessAdapterDeps {
   projectDir: string;
   gsdToolsPath: string;
   timeoutMs: number;
   workstream?: string;
-  createToolsError: (
+  createTimeoutError: (
+    message: string,
+    command: string,
+    args: string[],
+    stderr: string,
+    timeoutMs: number,
+  ) => GSDToolsError;
+  createFailureError: (
     message: string,
     command: string,
     args: string[],
     exitCode: number | null,
     stderr: string,
-    classification?: GSDToolsErrorClassification,
   ) => GSDToolsError;
 }
 
@@ -41,20 +47,19 @@ export class QuerySubprocessAdapter {
           if (error) {
             if (error.killed || (error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
               reject(
-                this.deps.createToolsError(
+                this.deps.createTimeoutError(
                   timeoutMessage(command, args, this.deps.timeoutMs),
                   command,
                   args,
-                  null,
                   stderrStr,
-                  { kind: 'timeout', timeoutMs: this.deps.timeoutMs },
+                  this.deps.timeoutMs,
                 ),
               );
               return;
             }
 
             reject(
-              this.deps.createToolsError(
+              this.deps.createFailureError(
                 `gsd-tools exited with code ${error.code ?? 'unknown'}: ${command} ${args.join(' ')}${stderrStr ? `\n${stderrStr}` : ''}`,
                 command,
                 args,
@@ -71,7 +76,7 @@ export class QuerySubprocessAdapter {
             resolve(parsed);
           } catch (parseErr) {
             reject(
-              this.deps.createToolsError(
+              this.deps.createFailureError(
                 `Failed to parse gsd-tools output for "${command}": ${parseErr instanceof Error ? parseErr.message : String(parseErr)}\nRaw output: ${raw.slice(0, 500)}`,
                 command,
                 args,
@@ -84,7 +89,7 @@ export class QuerySubprocessAdapter {
       );
 
       child.on('error', (err) => {
-        reject(this.deps.createToolsError(`Failed to execute gsd-tools: ${err.message}`, command, args, null, ''));
+        reject(this.deps.createFailureError(`Failed to execute gsd-tools: ${err.message}`, command, args, null, ''));
       });
     });
   }
@@ -108,19 +113,18 @@ export class QuerySubprocessAdapter {
           if (error) {
             if (error.killed || (error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
               reject(
-                this.deps.createToolsError(
+                this.deps.createTimeoutError(
                   timeoutMessage(command, args, this.deps.timeoutMs),
                   command,
                   args,
-                  null,
                   stderrStr,
-                  { kind: 'timeout', timeoutMs: this.deps.timeoutMs },
+                  this.deps.timeoutMs,
                 ),
               );
               return;
             }
             reject(
-              this.deps.createToolsError(
+              this.deps.createFailureError(
                 `gsd-tools exited with code ${error.code ?? 'unknown'}: ${command} ${args.join(' ')}${stderrStr ? `\n${stderrStr}` : ''}`,
                 command,
                 args,
@@ -135,7 +139,7 @@ export class QuerySubprocessAdapter {
       );
 
       child.on('error', (err) => {
-        reject(this.deps.createToolsError(`Failed to execute gsd-tools: ${err.message}`, command, args, null, ''));
+        reject(this.deps.createFailureError(`Failed to execute gsd-tools: ${err.message}`, command, args, null, ''));
       });
     });
   }

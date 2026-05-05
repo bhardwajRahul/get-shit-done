@@ -33,10 +33,10 @@ export function createGSDToolsRuntime(opts: {
     gsdToolsPath: opts.gsdToolsPath,
     timeoutMs: opts.timeoutMs,
     workstream: opts.workstream,
-    createToolsError: (message, command, args, exitCode, stderr, classification) =>
-      classification?.kind === 'timeout'
-        ? GSDToolsError.timeout(message, command, args, stderr, classification.timeoutMs, { exitCode })
-        : GSDToolsError.failure(message, command, args, exitCode, stderr),
+    createTimeoutError: (message, command, args, stderr, timeoutMs) =>
+      GSDToolsError.timeout(message, command, args, stderr, timeoutMs),
+    createFailureError: (message, command, args, exitCode, stderr) =>
+      GSDToolsError.failure(message, command, args, exitCode, stderr),
   });
 
   const nativeDirectAdapter = new QueryNativeDirectAdapter({
