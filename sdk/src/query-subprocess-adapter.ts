@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { isAbsolute, resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { timeoutMessage } from './query-failure-classification.js';
 import type { QueryToolsErrorFactory } from './query-tools-error-factory.js';
@@ -131,11 +132,12 @@ export class QuerySubprocessAdapter {
     let jsonStr = trimmed;
     if (jsonStr.startsWith('@file:')) {
       const filePath = jsonStr.slice(6).trim();
+      const resolvedPath = isAbsolute(filePath) ? filePath : resolve(this.deps.projectDir, filePath);
       try {
-        jsonStr = await readFile(filePath, 'utf-8');
+        jsonStr = await readFile(resolvedPath, 'utf-8');
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
-        throw new Error(`Failed to read gsd-tools @file: indirection at "${filePath}": ${reason}`);
+        throw new Error(`Failed to read gsd-tools @file: indirection at "${resolvedPath}": ${reason}`);
       }
     }
 

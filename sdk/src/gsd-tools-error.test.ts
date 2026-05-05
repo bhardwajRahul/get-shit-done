@@ -13,4 +13,9 @@ describe('GSDToolsError constructors', () => {
     expect(err.classification).toEqual({ kind: 'failure' });
     expect(err.exitCode).toBe(1);
   });
+
+  it('defaults direct constructor to failure classification', () => {
+    const err = new GSDToolsError('boom', 'state', ['load'], 1, 'stderr');
+    expect(err.classification).toEqual({ kind: 'failure' });
+  });
 });

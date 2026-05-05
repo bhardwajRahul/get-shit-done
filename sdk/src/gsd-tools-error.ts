@@ -22,7 +22,7 @@ export class GSDToolsError extends Error {
   ) {
     super(message, options);
     this.name = 'GSDToolsError';
-    this.classification = options?.classification;
+    this.classification = options?.classification ?? failureClassification();
   }
 
   static timeout(
@@ -61,5 +61,5 @@ export class GSDToolsError extends Error {
     );
   }
 
-  public readonly classification?: GSDToolsErrorClassification;
+  public readonly classification: GSDToolsErrorClassification;
 }
