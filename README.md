@@ -72,7 +72,7 @@ The loop is six commands. Each one does exactly one thing.
 
 ### 1. Initialize
 
-```
+```bash
 /gsd-new-project
 ```
 
@@ -82,7 +82,7 @@ Questions → research → requirements → roadmap. You approve it, then you're
 
 ### 2. Discuss
 
-```
+```bash
 /gsd-discuss-phase 1
 ```
 
@@ -92,7 +92,7 @@ The output feeds directly into research and planning. Skip it, get reasonable de
 
 ### 3. Plan
 
-```
+```bash
 /gsd-plan-phase 1
 ```
 
@@ -100,7 +100,7 @@ Research → plan → verify, in a loop until the plans pass. Each plan is small
 
 ### 4. Execute
 
-```
+```bash
 /gsd-execute-phase 1
 ```
 
@@ -110,7 +110,7 @@ Your main context window stays at 30–40%. The work happens in the subagents.
 
 ### 5. Verify
 
-```
+```bash
 /gsd-verify-work 1
 ```
 
@@ -118,7 +118,7 @@ Walk through what was built. Anything broken gets a diagnosed fix plan — ready
 
 ### 6. Repeat → Ship
 
-```
+```bash
 /gsd-ship 1
 /gsd-complete-milestone
 /gsd-new-milestone
