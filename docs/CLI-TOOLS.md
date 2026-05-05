@@ -45,7 +45,10 @@ Use this when authoring workflows, not when you only need the command list below
 
 **2. TypeScript — `@gsd-build/sdk` (`GSDTools`, `createRegistry`)**
 
-- `GSDTools` (used by `PhaseRunner`, `InitRunner`, and `GSD.createTools()`) always shells out to `gsd-tools.cjs` via `execFile` — there is no in-process registry path on this class. For typed, in-process dispatch use `createRegistry()` from `sdk/src/query/index.ts`, or invoke `gsd-sdk query` (see [QUERY-HANDLERS.md](../sdk/src/query/QUERY-HANDLERS.md)).
+- `GSDTools` now routes through the **SDK Runtime Bridge Module** (`sdk/src/query-runtime-bridge.ts`). Native registry dispatch is preferred; subprocess fallback is explicit policy (`allowFallbackToSubprocess`) and can be disabled for strict SDK-only execution.
+- `strictSdk` mode fails fast when a command has no native adapter, making SDK publish/readiness checks deterministic.
+- Structured bridge observability is available via `onDispatchEvent` (dispatch mode, fallback reason, duration, outcome, error kind).
+- For direct typed dispatch without `GSDTools`, use `createRegistry()` from `sdk/src/query/index.ts`, or invoke `gsd-sdk query` (see [QUERY-HANDLERS.md](../sdk/src/query/QUERY-HANDLERS.md)).
 - Conventions: mutation event wiring, `GSDError` vs `{ data: { error } }`, locks, and stubs — [QUERY-HANDLERS.md](../sdk/src/query/QUERY-HANDLERS.md).
 
 **CJS → SDK examples (same project directory):**
