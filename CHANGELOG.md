@@ -309,8 +309,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   pre-existing sentinel force-removes the orphan worktree before starting fresh, making
   the agent self-healing across crashes. (#2839)
 
-### Fixed
-
 - **`config-set resolve_model_ids` no longer rejected** — `resolve_model_ids` was
   documented in CONFIGURATION.md and read by model-resolution paths, but missing from
   the CJS/SDK `VALID_CONFIG_KEYS` allowlists. Added to both. (#3162)

@@ -55,8 +55,9 @@ describe('VALID_CONFIG_KEYS correctness', () => {
   });
 
   test('#3162: workflow._auto_chain_active must be accepted by isValidConfigKey (written by workflows)', () => {
-    assert.ok(
+    assert.strictEqual(
       isValidConfigKey('workflow._auto_chain_active'),
+      true,
       'workflow._auto_chain_active is written by plan-phase, execute-phase, discuss-phase, transition workflows via config-set'
     );
   });

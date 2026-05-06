@@ -76,6 +76,14 @@ export const VALID_CONFIG_KEYS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Internal runtime-state keys accepted by config-set workflows but not exposed
+ * as user-facing config options.
+ */
+export const RUNTIME_STATE_KEYS: ReadonlySet<string> = new Set([
+  'workflow._auto_chain_active',
+]);
+
+/**
  * Dynamic-pattern validators — keys matching these regexes are also accepted.
  * Each entry's `source` MUST equal the corresponding CJS regex `.source`
  * (the parity test enforces this).
@@ -127,8 +135,9 @@ export const DYNAMIC_KEY_PATTERNS: readonly DynamicKeyPattern[] = [
   },
 ];
 
-/** Returns true if keyPath is a valid config key (exact or dynamic pattern). */
+/** Returns true if keyPath is a valid config key (exact, runtime-state, or dynamic pattern). */
 export function isValidConfigKeyPath(keyPath: string): boolean {
   if (VALID_CONFIG_KEYS.has(keyPath)) return true;
+  if (RUNTIME_STATE_KEYS.has(keyPath)) return true;
   return DYNAMIC_KEY_PATTERNS.some((p) => p.test(keyPath));
 }
