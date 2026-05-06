@@ -3,6 +3,13 @@
 // "Prohibited: Raw Text Matching on Test Outputs". Per-file review may
 // reclassify some entries as source-text-is-the-product during migration.
 
+// allow-test-rule: structural-regression-guard
+// The shebang line must be `#!/usr/bin/env bash` (PATH-resolved) rather than
+// `#!/bin/bash` for cross-distro portability (NixOS, minimal Alpine do not
+// ship /bin/bash). This is an architectural constraint that cannot be verified
+// by executing the hooks — they run fine with either shebang on distros that
+// have /bin/bash, so only a source assertion catches a future regression.
+
 /**
  * Regression tests for bug #2136 / #2206
  *
