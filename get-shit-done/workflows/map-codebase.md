@@ -146,7 +146,7 @@ Use Task tool with `subagent_type="gsd-codebase-mapper"`, `model="{mapper_model}
 **Agent 1: Tech Focus**
 
 ```
-Task(
+Agent(
   subagent_type="gsd-codebase-mapper",
   model="{mapper_model}",
   run_in_background=true,
@@ -172,7 +172,7 @@ ${AGENT_SKILLS_MAPPER}"
 **Agent 2: Architecture Focus**
 
 ```
-Task(
+Agent(
   subagent_type="gsd-codebase-mapper",
   model="{mapper_model}",
   run_in_background=true,
@@ -198,7 +198,7 @@ ${AGENT_SKILLS_MAPPER}"
 **Agent 3: Quality Focus**
 
 ```
-Task(
+Agent(
   subagent_type="gsd-codebase-mapper",
   model="{mapper_model}",
   run_in_background=true,
@@ -224,7 +224,7 @@ ${AGENT_SKILLS_MAPPER}"
 **Agent 4: Concerns Focus**
 
 ```
-Task(
+Agent(
   subagent_type="gsd-codebase-mapper",
   model="{mapper_model}",
   run_in_background=true,
@@ -246,7 +246,7 @@ ${AGENT_SKILLS_MAPPER}"
 )
 ```
 
-> **ORCHESTRATOR RULE — CODEX RUNTIME**: After calling all 4 Task() calls above with `run_in_background=true`, do NOT read any source files, analyze the codebase, or write any mapping documents independently while the subagents are active. Wait for all 4 agents to complete before proceeding to collect_confirmations. This prevents duplicate work and wasted context.
+> **ORCHESTRATOR RULE — CODEX RUNTIME**: After calling all 4 Agent() calls above with `run_in_background=true`, do NOT read any source files, analyze the codebase, or write any mapping documents independently while the subagents are active. Wait for all 4 agents to complete before proceeding to collect_confirmations. This prevents duplicate work and wasted context.
 
 Continue to collect_confirmations.
 </step>
