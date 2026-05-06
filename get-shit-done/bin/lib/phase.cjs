@@ -222,11 +222,11 @@ function cmdFindPhase(cwd, phase, raw) {
   if (fs.existsSync(flatPhasesDir)) searchDirs.push(flatPhasesDir);
   try {
     const milestonesDir = path.join(planBase, 'milestones');
-    const entries = fs.readdirSync(milestonesDir, { withFileTypes: true });
+    const entries = fs.readdirSync(milestonesDir, { withFileTypes: true })
+      .filter(e => e.isDirectory() && /^v\d+.*-phases$/.test(e.name))
+      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
     for (const e of entries) {
-      if (e.isDirectory() && /^v\d+.*-phases$/.test(e.name)) {
-        searchDirs.push(path.join(milestonesDir, e.name));
-      }
+      searchDirs.push(path.join(milestonesDir, e.name));
     }
   } catch { /* no milestones dir */ }
 

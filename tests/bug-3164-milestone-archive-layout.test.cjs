@@ -103,6 +103,70 @@ describe('#3164 — validate consistency: milestone-archive layout', () => {
       `Got spurious W006 warnings in milestone-archive layout:\n  ${w006.join('\n  ')}`
     );
   });
+
+  test('prefixed archive dir names (CK-64-...) are recognized as phase 64', () => {
+    setupMilestoneArchiveProject(tmpDir, {
+      milestone: 'v1.7',
+      phases: ['CK-64-secondary-grader-fix'],
+      roadmapPhases: ['64'],
+    });
+
+    const result = runGsdTools('validate consistency', tmpDir);
+    assert.ok(result.success, `validate consistency should succeed: ${result.error}`);
+
+    const out = JSON.parse(result.output);
+    const w006 = (out.warnings || []).filter(w => w.includes('Phase 64') && w.includes('no directory'));
+    assert.deepStrictEqual(
+      w006, [],
+      `Prefixed phase dir should count as phase 64, got W006:\n  ${w006.join('\n  ')}`
+    );
+  });
+
+  test('consistency scans only active milestone archive and still validates plans/frontmatter', () => {
+    // Remove default flat phases dir; this project is archive-only.
+    fs.rmSync(path.join(tmpDir, '.planning', 'phases'), { recursive: true, force: true });
+
+    // Old archived milestone should NOT be treated as active on-disk phase roots.
+    const oldDir = path.join(tmpDir, '.planning', 'milestones', 'v1.6-phases', '64-legacy');
+    fs.mkdirSync(oldDir, { recursive: true });
+    fs.writeFileSync(path.join(oldDir, '64-01-PLAN.md'), '# legacy plan\n');
+
+    // Active milestone includes intentionally malformed plan numbering/frontmatter.
+    const activeDir = path.join(tmpDir, '.planning', 'milestones', 'v1.7-phases', '65-current');
+    fs.mkdirSync(activeDir, { recursive: true });
+    fs.writeFileSync(path.join(activeDir, '65-01-PLAN.md'), '# plan 1\n');
+    fs.writeFileSync(path.join(activeDir, '65-03-PLAN.md'), '# plan 3\n');
+
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      'milestone: v1.7\n# Session State\n\nPhase: 65\n'
+    );
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      '# Roadmap\n\n## Roadmap v1.7: Current\n\n### Phase 65: Current work\n\nGoal: test.\n'
+    );
+
+    const result = runGsdTools('validate consistency', tmpDir);
+    assert.ok(result.success, `validate consistency should succeed: ${result.error}`);
+
+    const out = JSON.parse(result.output);
+    const warnings = out.warnings || [];
+    const phase64Warnings = warnings.filter(w => w.includes('Phase 64 exists on disk but not in ROADMAP.md'));
+    assert.deepStrictEqual(
+      phase64Warnings,
+      [],
+      `Old archived milestone phase 64 should not be treated as active:\n  ${phase64Warnings.join('\n  ')}`
+    );
+    assert.ok(
+      warnings.some(w => w.includes('Gap in plan numbering in milestones/v1.7-phases/65-current')),
+      `Expected plan numbering warning from active archive root, got:\n  ${warnings.join('\n  ')}`
+    );
+    assert.ok(
+      warnings.some(w => w.includes("milestones/v1.7-phases/65-current/65-01-PLAN.md: missing 'wave'"))
+        || warnings.some(w => w.includes("milestones/v1.7-phases/65-current/65-03-PLAN.md: missing 'wave'")),
+      `Expected frontmatter warning from active archive plans, got:\n  ${warnings.join('\n  ')}`
+    );
+  });
 });
 
 describe('#3164 — validate health: milestone-archive layout', () => {
@@ -151,5 +215,29 @@ describe('#3164 — find-phase: milestone-archive layout', () => {
 
     const out = JSON.parse(result.output);
     assert.strictEqual(out.found, true, `find-phase 64 should return found:true, got: ${JSON.stringify(out)}`);
+  });
+
+  test('find-phase searches milestone archives in deterministic sorted order', () => {
+    // Remove flat phases dir so search relies on milestone archives only.
+    fs.rmSync(path.join(tmpDir, '.planning', 'phases'), { recursive: true, force: true });
+
+    const milestonesDir = path.join(tmpDir, '.planning', 'milestones');
+    const v110 = path.join(milestonesDir, 'v1.10-phases', '64-from-110');
+    const v12 = path.join(milestonesDir, 'v1.2-phases', '64-from-12');
+    fs.mkdirSync(v110, { recursive: true });
+    fs.mkdirSync(v12, { recursive: true });
+    fs.writeFileSync(path.join(v110, 'PLAN.md'), '# v1.10 plan\n');
+    fs.writeFileSync(path.join(v12, 'PLAN.md'), '# v1.2 plan\n');
+
+    const result = runGsdTools('find-phase 64', tmpDir);
+    assert.ok(result.success, `find-phase should succeed: ${result.error}`);
+
+    const out = JSON.parse(result.output);
+    assert.strictEqual(out.found, true, `find-phase 64 should return found:true, got: ${JSON.stringify(out)}`);
+    assert.strictEqual(
+      out.directory,
+      '.planning/milestones/v1.2-phases/64-from-12',
+      `Expected deterministic archive ordering (v1.2 before v1.10), got directory: ${out.directory}`
+    );
   });
 });
