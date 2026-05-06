@@ -117,6 +117,7 @@ describe('QueryRuntimeBridge observability', () => {
         type: 'query_hotpath_dispatch',
         command: 'commit',
         dispatchMode: 'subprocess',
+        reason: 'native_disabled',
         outcome: 'success',
       }),
     );
@@ -141,6 +142,7 @@ describe('QueryRuntimeBridge observability', () => {
         type: 'query_hotpath_dispatch',
         command: 'commit',
         dispatchMode: 'subprocess',
+        reason: 'policy_blocked',
         outcome: 'error',
       }),
     );

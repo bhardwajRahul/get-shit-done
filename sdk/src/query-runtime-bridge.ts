@@ -35,6 +35,7 @@ export interface RuntimeBridgeHotpathEvent {
   legacyCommand: string;
   mode: TransportMode;
   dispatchMode: 'native_hotpath' | 'subprocess';
+  reason?: 'native_disabled' | 'policy_blocked';
   durationMs: number;
   outcome: 'success' | 'error';
   errorKind?: 'timeout' | 'failure';
@@ -168,6 +169,7 @@ export class QueryRuntimeBridge {
         legacyCommand,
         mode,
         dispatchMode: 'subprocess',
+        reason: 'policy_blocked',
         durationMs: Date.now() - startedAt,
         outcome: 'error',
         errorKind: 'failure',
@@ -189,6 +191,7 @@ export class QueryRuntimeBridge {
         legacyCommand,
         mode,
         dispatchMode: useNative ? 'native_hotpath' : 'subprocess',
+        reason: useNative ? undefined : 'native_disabled',
         durationMs: Date.now() - startedAt,
         outcome: 'success',
       });
@@ -201,6 +204,7 @@ export class QueryRuntimeBridge {
         legacyCommand,
         mode,
         dispatchMode: useNative ? 'native_hotpath' : 'subprocess',
+        reason: useNative ? undefined : 'native_disabled',
         durationMs: Date.now() - startedAt,
         outcome: 'error',
         errorKind: kind,
