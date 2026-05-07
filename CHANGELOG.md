@@ -8,7 +8,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **`--sdk` flag now wired into SDK deployment** — `hasSdk` was parsed in `bin/install.js` but never passed to `installSdkIfNeeded`, so `npx get-shit-done-cc@latest --sdk` silently skipped SDK deployment and produced a misleading "✓ GSD SDK ready" message. `installSdkIfNeeded` now accepts `forceSdk: true` (set when `--sdk` is passed), which bypasses the local-install soft-skip and runs the full shim-link path so `gsd-sdk` is materialized on PATH. The `#2678` soft-skip for local installs without `--sdk` is preserved. (#3033)
+- **Workstream resolution in `init.milestone-op` and `roadmap.analyze`** — both handlers now respect `--ws`, `GSD_WORKSTREAM`, and the `.planning/active-workstream` file; workstream-scoped repos no longer exit "All phases complete — Nothing left to do" due to `phase_count: 0` from reading the wrong root `.planning/`. (#3196)
 - **Milestone-archive layout support** — `validate consistency`, `validate health`, and `find-phase` now scan `.planning/milestones/v*-phases/` directories in addition to the flat `.planning/phases/` layout. Projects that have graduated to milestone-archive layout no longer receive spurious W006 "Phase N in ROADMAP.md but no directory on disk" warnings for every active phase. (#3164)
 
 ### Feature
