@@ -165,14 +165,21 @@ function build() {
   }
 
   // Best-effort cleanup of the staging dir. If concurrent builders are still
-  // running, leftover files belong to them and will be cleaned up on their
-  // own renames; rmdir-on-non-empty is a no-op so this is race-safe.
+  // running, their staged files will be left in STAGE_DIR and cleaned up by
+  // whichever builder calls fs.rmdirSync last. fs.rmdirSync throws ENOTEMPTY
+  // on a non-empty directory (it is NOT a silent no-op), so we first read
+  // the directory via fs.readdirSync(STAGE_DIR) -> leftovers and only call
+  // fs.rmdirSync(STAGE_DIR) when leftovers.length === 0. A TOCTOU window
+  // remains: another builder can drop a staged file between the readdirSync
+  // and the rmdirSync, in which case rmdirSync still throws ENOTEMPTY — the
+  // outer try/catch swallows that, plus ENOENT if the dir was already
+  // removed by a peer. Either way, build proceeds; cleanup is best-effort.
   try {
     const leftovers = fs.readdirSync(STAGE_DIR);
     if (leftovers.length === 0) {
       fs.rmdirSync(STAGE_DIR);
     }
-  } catch (e) { /* tolerate races / missing dir */ }
+  } catch (e) { /* tolerate TOCTOU ENOTEMPTY or ENOENT from peer cleanup */ }
 
   if (hasErrors) {
     console.error('\n\x1b[31mBuild failed: fix syntax errors above before publishing.\x1b[0m');
