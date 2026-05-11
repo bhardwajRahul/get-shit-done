@@ -12,6 +12,10 @@ module.exports = {
   introducedIn: '1.50.0',
   scopes: ['global', 'local'],
   destructive: true,
+  // Retired generated hook files are removed only with manifest-managed
+  // evidence. This follows docs/installer-migrations.md#ownership and avoids
+  // relying on whether a runtime currently registers host hook config in the
+  // runtime contract registry.
   plan: ({ classifyArtifact }) => {
     const actions = [];
     for (const relPath of LEGACY_ORPHAN_FILES) {

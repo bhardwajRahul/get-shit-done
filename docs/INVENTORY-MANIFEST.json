@@ -277,6 +277,7 @@
       "init-command-router.cjs",
       "init.cjs",
       "install-profiles.cjs",
+      "installer-migration-report.cjs",
       "installer-migrations.cjs",
       "intel.cjs",
       "learnings.cjs",

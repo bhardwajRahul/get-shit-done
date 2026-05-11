@@ -79,6 +79,10 @@ const {
 const {
   runInstallerMigrations,
 } = require(path.join(_gsdLibDir, 'installer-migrations.cjs'));
+const {
+  assertInstallerMigrationsUnblocked,
+  summarizeInstallerMigrationResult,
+} = require(path.join(_gsdLibDir, 'installer-migration-report.cjs'));
 
 // Parse args
 const args = process.argv.slice(2);
@@ -7467,6 +7471,17 @@ function reportLocalPatches(configDir, runtime = 'claude') {
   return meta.files || [];
 }
 
+function reportInstallerMigrationResult(result) {
+  const summary = summarizeInstallerMigrationResult(result);
+  if (!summary.hasReportableActions) return;
+
+  console.log(`  ${green}✓${reset} Installer migrations`);
+  for (const row of summary.rows) {
+    const reason = row.reason ? ` — ${row.reason}` : '';
+    console.log(`     ${row.label} ${dim}${row.relPath}${reset}${reason}`);
+  }
+}
+
 function install(isGlobal, runtime = 'claude') {
   const isOpencode = runtime === 'opencode';
   const isGemini = runtime === 'gemini';
@@ -7722,11 +7737,19 @@ function install(isGlobal, runtime = 'claude') {
   // Run manifest-backed cleanup migrations after rollback snapshots exist and
   // before package materialization. Codex rollback paths invoke the migration
   // rollback handle if a later install step fails.
+  //
+  // Runtime scope comes from docs/installer-migrations.md#runtime-configuration-contract-registry:
+  // every supported runtime uses this same planner/apply/report path, while
+  // individual migration records decide whether a runtime-specific config
+  // rewrite is allowed by that runtime's documented ownership boundary.
   installerMigrationResult = runInstallerMigrations({
     configDir: targetDir,
     runtime,
     scope: isGlobal ? 'global' : 'local',
+    baselineScan: true,
   });
+  reportInstallerMigrationResult(installerMigrationResult);
+  assertInstallerMigrationsUnblocked(installerMigrationResult);
 
   // #3245 CR finding 2 — wrap the pre-config install operations in a try/catch so
   // that ANY throw between snapshot capture and the Codex config block triggers rollback.

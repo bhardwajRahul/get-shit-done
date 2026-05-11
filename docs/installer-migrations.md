@@ -254,6 +254,21 @@ The installer runs migrations before materializing the new package payload.
 11. Write the new manifest and install state.
 12. Report backups, preserved files, removed stale files, and skipped actions.
 
+The Phase 4 install integration wires this flow into the normal install/update
+entry point for every supported runtime: Claude Code, Antigravity, Augment,
+Cline, CodeBuddy, Codex, Copilot, Cursor, Gemini, Hermes Agent, Kilo, OpenCode,
+Qwen Code, Trae, and Windsurf. The installer invokes the same migration runner
+with `baselineScan: true`, reports the projected action rows, applies safe
+non-interactive actions before materialization, writes install state after a
+successful apply, and fails before writing new package files when the runner
+returns blocked user-choice actions.
+
+Phase 1-3 built the planning, apply, rollback, install-state, baseline, and
+migration-record mechanics. Those phases did not prove the normal install entry
+point across every runtime. Phase 4 owns that guardrail with an all-runtime
+install matrix that exercises safe managed cleanup and blocked user-choice
+artifacts for each runtime above.
+
 If any apply step fails, the executor uses the journal to restore modified
 paths where possible. Rollback must never delete files that were not created
 or modified by the current installer run.

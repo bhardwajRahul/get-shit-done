@@ -197,6 +197,56 @@ test('blocks stale GSD-looking baseline artifacts for explicit user choice', () 
   }
 });
 
+test('records known generated agent artifacts so profile cleanup can remove them', () => {
+  const configDir = createTempInstall();
+  try {
+    writeFile(configDir, 'agents/gsd-executor.md', 'old generated agent\n');
+    writeFile(configDir, 'agents/gsd-executor.toml', 'old generated agent config\n');
+    writeFile(configDir, 'agents/gsd-local-experiment.md', 'user experiment\n');
+    writeManifest(configDir, {});
+
+    const result = runInstallerMigrations({
+      configDir,
+      runtime: 'codex',
+      scope: 'global',
+      migrations: [firstTimeBaselineMigration],
+      baselineScan: true,
+      now: () => '2026-05-11T00:00:03.000Z',
+    });
+
+    assert.deepEqual(
+      result.plan.actions.map((action) => ({
+        type: action.type,
+        relPath: action.relPath,
+        classification: action.classification,
+      })),
+      [
+        {
+          type: 'record-baseline',
+          relPath: 'agents/gsd-executor.md',
+          classification: 'unknown',
+        },
+        {
+          type: 'record-baseline',
+          relPath: 'agents/gsd-executor.toml',
+          classification: 'unknown',
+        },
+        {
+          type: 'prompt-user',
+          relPath: 'agents/gsd-local-experiment.md',
+          classification: 'stale-gsd-looking',
+        },
+      ]
+    );
+    assert.deepEqual(result.blocked.map((action) => action.relPath), ['agents/gsd-local-experiment.md']);
+    assert.equal(fs.readFileSync(path.join(configDir, 'agents/gsd-executor.md'), 'utf8'), 'old generated agent\n');
+    assert.equal(fs.readFileSync(path.join(configDir, 'agents/gsd-executor.toml'), 'utf8'), 'old generated agent config\n');
+    assert.equal(fs.readFileSync(path.join(configDir, 'agents/gsd-local-experiment.md'), 'utf8'), 'user experiment\n');
+  } finally {
+    cleanup(configDir);
+  }
+});
+
 test('plans a pending migration against an unchanged managed file', () => {
   const configDir = createTempInstall();
   try {
