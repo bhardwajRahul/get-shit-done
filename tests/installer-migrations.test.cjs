@@ -14,6 +14,7 @@ const {
   runInstallerMigrations,
   writeInstallState,
 } = require('../get-shit-done/bin/lib/installer-migrations.cjs');
+const firstTimeBaselineMigration = require('../get-shit-done/bin/lib/installer-migrations/000-first-time-baseline.cjs');
 
 function createTempInstall() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-installer-migrations-'));
@@ -67,6 +68,134 @@ function userHook(command) {
     ],
   };
 }
+
+test('records a first-time baseline while preserving user-owned artifacts', () => {
+  const configDir = createTempInstall();
+  try {
+    writeFile(configDir, 'get-shit-done/workflows/plan.md', 'managed workflow\n');
+    writeFile(configDir, 'get-shit-done/USER-PROFILE.md', 'user profile\n');
+    writeManifest(configDir, {
+      'get-shit-done/workflows/plan.md': sha256('managed workflow\n'),
+    });
+
+    const result = runInstallerMigrations({
+      configDir,
+      runtime: 'claude',
+      scope: 'global',
+      migrations: [firstTimeBaselineMigration],
+      baselineScan: true,
+      now: () => '2026-05-11T00:00:00.000Z',
+    });
+
+    assert.deepEqual(result.appliedMigrationIds, ['2026-05-11-first-time-baseline-scan']);
+    assert.equal(fs.readFileSync(path.join(configDir, 'get-shit-done/workflows/plan.md'), 'utf8'), 'managed workflow\n');
+    assert.equal(fs.readFileSync(path.join(configDir, 'get-shit-done/USER-PROFILE.md'), 'utf8'), 'user profile\n');
+
+    assert.deepEqual(
+      result.plan.actions.map((action) => ({
+        type: action.type,
+        relPath: action.relPath,
+        classification: action.classification,
+      })),
+      [
+        {
+          type: 'record-baseline',
+          relPath: 'get-shit-done/workflows/plan.md',
+          classification: 'managed-pristine',
+        },
+        {
+          type: 'baseline-preserve-user',
+          relPath: 'get-shit-done/USER-PROFILE.md',
+          classification: 'user-owned',
+        },
+      ]
+    );
+    assert.deepEqual(readInstallState(configDir).appliedMigrations.map((entry) => entry.id), [
+      '2026-05-11-first-time-baseline-scan',
+    ]);
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('preserves unknown files discovered in known install surfaces by default', () => {
+  const configDir = createTempInstall();
+  try {
+    writeFile(configDir, 'hooks/custom-user-hook.js', 'user hook\n');
+    writeManifest(configDir, {});
+
+    const result = runInstallerMigrations({
+      configDir,
+      runtime: 'claude',
+      scope: 'global',
+      migrations: [firstTimeBaselineMigration],
+      baselineScan: true,
+      now: () => '2026-05-11T00:00:01.000Z',
+    });
+
+    assert.deepEqual(result.blocked, undefined);
+    assert.deepEqual(
+      result.plan.actions.map((action) => ({
+        type: action.type,
+        relPath: action.relPath,
+        classification: action.classification,
+      })),
+      [
+        {
+          type: 'baseline-preserve-user',
+          relPath: 'hooks/custom-user-hook.js',
+          classification: 'unknown',
+        },
+      ]
+    );
+    assert.equal(fs.readFileSync(path.join(configDir, 'hooks/custom-user-hook.js'), 'utf8'), 'user hook\n');
+    assert.deepEqual(readInstallState(configDir).appliedMigrations.map((entry) => entry.id), [
+      '2026-05-11-first-time-baseline-scan',
+    ]);
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('blocks stale GSD-looking baseline artifacts for explicit user choice', () => {
+  const configDir = createTempInstall();
+  try {
+    writeFile(configDir, 'hooks/gsd-retired-hook.js', 'old gsd hook\n');
+    writeManifest(configDir, {});
+
+    const result = runInstallerMigrations({
+      configDir,
+      runtime: 'claude',
+      scope: 'global',
+      migrations: [firstTimeBaselineMigration],
+      baselineScan: true,
+      now: () => '2026-05-11T00:00:02.000Z',
+    });
+
+    assert.deepEqual(result.appliedMigrationIds, []);
+    assert.equal(result.journalRelPath, null);
+    assert.equal(fs.existsSync(path.join(configDir, INSTALL_STATE_NAME)), false);
+    assert.equal(fs.readFileSync(path.join(configDir, 'hooks/gsd-retired-hook.js'), 'utf8'), 'old gsd hook\n');
+    assert.deepEqual(
+      result.blocked.map((action) => ({
+        type: action.type,
+        relPath: action.relPath,
+        classification: action.classification,
+        choices: action.choices,
+      })),
+      [
+        {
+          type: 'prompt-user',
+          relPath: 'hooks/gsd-retired-hook.js',
+          classification: 'stale-gsd-looking',
+          choices: ['keep', 'remove'],
+        },
+      ]
+    );
+  } finally {
+    cleanup(configDir);
+  }
+});
 
 test('plans a pending migration against an unchanged managed file', () => {
   const configDir = createTempInstall();

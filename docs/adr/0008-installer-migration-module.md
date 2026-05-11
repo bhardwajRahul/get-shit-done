@@ -15,6 +15,7 @@ We decided to introduce an explicit Installer Migration Module for install-time 
 - Require migrations to plan first, then apply through a shared executor that owns backup, rollback, and reporting.
 - Default ambiguous or unknown files to preserve; destructive changes need managed-file evidence or explicit user choice.
 - Support dry-run output using the same planner used by apply mode.
+- Include a first-time baseline scanner for legacy installs that need classification before destructive migrations can be trusted.
 - Treat the runtime configuration contract registry in `docs/installer-migrations.md` as the source of truth for migrations that touch host runtime config.
 
 ## Runtime Contract Decision

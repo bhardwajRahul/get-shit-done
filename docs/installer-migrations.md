@@ -213,6 +213,22 @@ an explicit user choice.
 Use for profile, preferences, hand-authored instructions, and future workflow
 outputs.
 
+### record-baseline
+
+Record a manifest-managed file in the first-time baseline without mutating it.
+The executor writes a journal entry and install-state entry so later upgrades
+know the baseline scan completed.
+
+Use only from the first-time baseline scanner.
+
+### baseline-preserve-user
+
+Record a user-owned or unknown file discovered under a known install surface
+without mutating it. Unknown files default to this action unless they look like
+retired GSD-generated artifacts that need an explicit user choice.
+
+Use only from the first-time baseline scanner.
+
 ### prompt-user
 
 Stop non-interactive destructive migration and ask in interactive mode. The
@@ -364,6 +380,18 @@ It should:
 4. report stale GSD-looking files that are not in the current manifest
 5. offer actions for ambiguous files instead of deleting them
 6. write install state after successful classification
+
+The Phase 3 implementation adds a gated baseline migration record,
+`2026-05-11-first-time-baseline-scan`. The runner passes `baselineScan: true`
+when the installer wants this first-time scan. Without that flag, discovery is
+safe for normal migration runs and the baseline record plans no actions.
+
+The baseline action contract is:
+
+- `record-baseline` for manifest-managed files
+- `baseline-preserve-user` for known user-owned files and unknown files that do
+  not look like stale GSD-generated artifacts
+- `prompt-user` for stale GSD-looking artifacts that are not manifest-proven
 
 This baseline is the escape hatch for old installs that predate full migration
 tracking. It gives the user a reviewable redistribution/removal plan without
