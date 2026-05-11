@@ -665,6 +665,58 @@ test('reports lock release failures after migration work completes', (t) => {
   );
 });
 
+test('rollback handle restores files and install state after a successful apply', () => {
+  const configDir = createTempInstall();
+  try {
+    writeFile(configDir, 'hooks/old-hook.js', 'managed hook\n');
+    writeManifest(configDir, {
+      'hooks/old-hook.js': sha256('managed hook\n'),
+    });
+    writeInstallState(configDir, {
+      schemaVersion: 1,
+      appliedMigrations: [
+        {
+          id: 'already-applied',
+          appliedAt: '2026-05-10T00:00:00.000Z',
+          journal: 'gsd-migration-journal/prior.json',
+        },
+      ],
+    });
+
+    const plan = planInstallerMigrations({
+      configDir,
+      migrations: [
+        {
+          id: '2026-05-11-remove-old-hook',
+          description: 'Remove retired hook',
+          plan: () => [
+            {
+              type: 'remove-managed',
+              relPath: 'hooks/old-hook.js',
+              reason: 'retired hook',
+            },
+          ],
+        },
+      ],
+      now: () => '2026-05-11T00:00:00.000Z',
+    });
+
+    const result = applyInstallerMigrationPlan({
+      configDir,
+      plan,
+      now: () => '2026-05-11T00:00:01.000Z',
+    });
+
+    result.rollback();
+
+    assert.equal(fs.readFileSync(path.join(configDir, 'hooks/old-hook.js'), 'utf8'), 'managed hook\n');
+    assert.deepEqual(readInstallState(configDir).appliedMigrations.map((entry) => entry.id), ['already-applied']);
+    assert.equal(fs.existsSync(path.join(configDir, result.journalRelPath)), false);
+  } finally {
+    cleanup(configDir);
+  }
+});
+
 test('rolls back touched files and leaves state unchanged when apply fails', () => {
   const configDir = createTempInstall();
   try {
