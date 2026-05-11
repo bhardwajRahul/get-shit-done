@@ -407,6 +407,37 @@ test('rejects migration actions that escape the install root', () => {
   }
 });
 
+test('rejects migration actions that normalize to the install root', () => {
+  const configDir = createTempInstall();
+  try {
+    writeManifest(configDir, {});
+
+    for (const relPath of ['.', 'hooks/..']) {
+      assert.throws(
+        () => planInstallerMigrations({
+          configDir,
+          migrations: [
+            {
+              id: `2026-05-11-bad-path-${relPath.replace(/[^a-z0-9]/gi, '-')}`,
+              description: 'Bad path',
+              plan: () => [
+                {
+                  type: 'remove-managed',
+                  relPath,
+                  reason: 'bad path',
+                },
+              ],
+            },
+          ],
+        }),
+        /relPath must stay inside configDir/
+      );
+    }
+  } finally {
+    cleanup(configDir);
+  }
+});
+
 test('runs discovered installer migrations against manifest-managed legacy orphan files', () => {
   const configDir = createTempInstall();
   try {

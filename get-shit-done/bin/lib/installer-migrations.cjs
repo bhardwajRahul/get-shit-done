@@ -56,10 +56,14 @@ function normalizeRelPath(relPath) {
     throw new Error('migration action relPath must be a non-empty string');
   }
   const normalized = relPath.replace(/\\/g, '/');
-  if (normalized.startsWith('/') || normalized.includes('../') || normalized === '..') {
+  if (path.isAbsolute(normalized) || path.win32.isAbsolute(normalized)) {
     throw new Error(`migration action relPath must stay inside configDir: ${relPath}`);
   }
-  return normalized;
+  const segments = normalized.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    throw new Error(`migration action relPath must stay inside configDir: ${relPath}`);
+  }
+  return segments.join('/');
 }
 
 function classifyArtifact(configDir, relPath, manifest) {

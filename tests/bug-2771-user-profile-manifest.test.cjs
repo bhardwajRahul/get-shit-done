@@ -22,6 +22,7 @@ const { describe, test, beforeEach, afterEach, before } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execFileSync } = require('child_process');
 const { createTempDir, cleanup } = require('./helpers.cjs');
 
@@ -220,9 +221,16 @@ describe('#2771: USER_OWNED_ARTIFACTS is a single source of truth', () => {
 
 describe('manifest path safety', () => {
   let tmpDir;
+  let outside;
 
-  beforeEach(() => { tmpDir = createTempDir('gsd-manifest-path-safety-'); });
-  afterEach(() => { cleanup(tmpDir); });
+  beforeEach(() => {
+    tmpDir = createTempDir('gsd-manifest-path-safety-');
+    outside = path.join(tmpDir, '..', `outside-managed-file-${path.basename(tmpDir)}.txt`);
+  });
+  afterEach(() => {
+    if (outside) fs.rmSync(outside, { recursive: true, force: true });
+    cleanup(tmpDir);
+  });
 
   test('saveLocalPatches ignores manifest entries that escape the install root', () => {
     const origMode = process.env.GSD_TEST_MODE;
@@ -236,7 +244,6 @@ describe('manifest path safety', () => {
       else process.env.GSD_TEST_MODE = origMode;
     }
 
-    const outside = path.join(tmpDir, '..', 'outside-managed-file.txt');
     fs.writeFileSync(outside, 'outside user data\n', 'utf8');
     fs.writeFileSync(
       path.join(tmpDir, MANIFEST_NAME),
@@ -254,6 +261,46 @@ describe('manifest path safety', () => {
 
     assert.deepEqual(modified, []);
     assert.equal(fs.readFileSync(outside, 'utf8'), 'outside user data\n');
-    assert.equal(fs.existsSync(path.join(tmpDir, PATCHES_DIR_NAME, '..', 'outside-managed-file.txt')), false);
+    assert.equal(fs.existsSync(path.join(tmpDir, PATCHES_DIR_NAME, '..', path.basename(outside))), false);
+  });
+
+  test('saveLocalPatches does not follow symlinked patch directories outside the install root', () => {
+    const origMode = process.env.GSD_TEST_MODE;
+    process.env.GSD_TEST_MODE = '1';
+    let mod;
+    try {
+      delete require.cache[require.resolve(INSTALL_SCRIPT)];
+      mod = require(INSTALL_SCRIPT);
+    } finally {
+      if (origMode === undefined) delete process.env.GSD_TEST_MODE;
+      else process.env.GSD_TEST_MODE = origMode;
+    }
+
+    const hookPath = path.join(tmpDir, 'hooks', 'managed.js');
+    fs.mkdirSync(path.dirname(hookPath), { recursive: true });
+    fs.writeFileSync(hookPath, 'user edited hook\n', 'utf8');
+    fs.writeFileSync(
+      path.join(tmpDir, MANIFEST_NAME),
+      JSON.stringify({
+        version: 'legacy',
+        timestamp: '2026-05-11T00:00:00.000Z',
+        files: {
+          'hooks/managed.js': crypto.createHash('sha256').update('managed hook\n').digest('hex'),
+        },
+      }, null, 2),
+      'utf8'
+    );
+
+    fs.mkdirSync(outside, { recursive: true });
+    try {
+      fs.symlinkSync(outside, path.join(tmpDir, PATCHES_DIR_NAME), 'dir');
+    } catch {
+      return;
+    }
+
+    const modified = mod.saveLocalPatches(tmpDir);
+
+    assert.deepEqual(modified, []);
+    assert.equal(fs.existsSync(path.join(outside, 'hooks', 'managed.js')), false);
   });
 });
