@@ -226,7 +226,14 @@ function journalAction(action, status, extras = {}) {
   return { ...safeAction, ...extras, status };
 }
 
-function planInstallerMigrations({ configDir, runtime = null, scope = null, migrations, now = () => new Date().toISOString() }) {
+function planInstallerMigrations({
+  configDir,
+  runtime = null,
+  scope = null,
+  migrations,
+  baselineScan = false,
+  now = () => new Date().toISOString(),
+}) {
   if (!configDir) throw new Error('configDir is required');
   if (!Array.isArray(migrations)) throw new Error('migrations must be an array');
 
@@ -262,6 +269,7 @@ function planInstallerMigrations({ configDir, runtime = null, scope = null, migr
       scope,
       manifest,
       state,
+      baselineScan,
       now,
       classifyArtifact: classify,
       readJson: (relPath) => readJson(configDir, relPath),
@@ -271,7 +279,13 @@ function planInstallerMigrations({ configDir, runtime = null, scope = null, migr
     }
     for (const rawAction of plannedActions) {
       const relPath = normalizeRelPath(rawAction.relPath);
-      const classification = classify(relPath);
+      const classification = rawAction.classification
+        ? {
+            classification: rawAction.classification,
+            originalHash: rawAction.originalHash || null,
+            currentHash: rawAction.currentHash || null,
+          }
+        : classify(relPath);
       let protectedType = rawAction.type;
       if (rawAction.type === 'remove-managed' && classification.classification === 'managed-modified') {
         protectedType = 'backup-and-remove';
@@ -299,7 +313,18 @@ function planInstallerMigrations({ configDir, runtime = null, scope = null, migr
         action.value = rawAction.value;
         action.deleteIfEmpty = rawAction.deleteIfEmpty === true;
       }
-      if (action.classification === 'unknown' && action.type !== 'rewrite-json') blocked.push(action);
+      if (rawAction.prompt) action.prompt = rawAction.prompt;
+      if (Array.isArray(rawAction.choices)) action.choices = rawAction.choices;
+      if (action.type === 'prompt-user') {
+        blocked.push(action);
+      } else if (
+        action.classification === 'unknown' &&
+        action.type !== 'rewrite-json' &&
+        action.type !== 'record-baseline' &&
+        action.type !== 'baseline-preserve-user'
+      ) {
+        blocked.push(action);
+      }
       actions.push(action);
     }
   }
@@ -392,13 +417,24 @@ function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().t
 
   try {
     for (const action of plan.actions) {
-      if (action.type !== 'remove-managed' && action.type !== 'backup-and-remove' && action.type !== 'rewrite-json') {
+      if (
+        action.type !== 'remove-managed' &&
+        action.type !== 'backup-and-remove' &&
+        action.type !== 'rewrite-json' &&
+        action.type !== 'record-baseline' &&
+        action.type !== 'baseline-preserve-user'
+      ) {
         throw new Error(`unsupported migration action type: ${action.type}`);
       }
 
       const { normalized, fullPath } = ensureInsideConfig(configDir, action.relPath);
       if (!fs.existsSync(fullPath)) {
         journal.actions.push(journalAction(action, 'missing'));
+        continue;
+      }
+
+      if (action.type === 'record-baseline' || action.type === 'baseline-preserve-user') {
+        journal.actions.push(journalAction(action, action.type === 'record-baseline' ? 'recorded' : 'preserved'));
         continue;
       }
 
@@ -445,9 +481,15 @@ function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().t
     const state = readInstallState(configDir);
     const applied = appliedMigrationIds(state);
     const nextApplied = [...state.appliedMigrations];
+    const actionsByMigrationId = new Map();
+    for (const action of plan.actions) {
+      if (action.migrationId && !actionsByMigrationId.has(action.migrationId)) {
+        actionsByMigrationId.set(action.migrationId, action);
+      }
+    }
     for (const id of journal.appliedMigrationIds) {
       if (!applied.has(id)) {
-        const action = plan.actions.find((candidate) => candidate.migrationId === id);
+        const action = actionsByMigrationId.get(id);
         nextApplied.push({
           id,
           appliedAt,
@@ -551,9 +593,10 @@ function runInstallerMigrations({
   scope = null,
   migrationsDir = DEFAULT_MIGRATIONS_DIR,
   migrations = discoverInstallerMigrations({ migrationsDir }),
+  baselineScan = false,
   now = () => new Date().toISOString(),
 } = {}) {
-  const plan = planInstallerMigrations({ configDir, runtime, scope, migrations, now });
+  const plan = planInstallerMigrations({ configDir, runtime, scope, migrations, baselineScan, now });
   if (plan.actions.length === 0) {
     return {
       appliedMigrationIds: [],

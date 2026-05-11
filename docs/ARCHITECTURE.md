@@ -627,6 +627,9 @@ Install-time file moves, stale-artifact cleanup, config rewrites, and user-data
 preservation are governed by the Installer Migration Module. See
 [Installer Migrations](installer-migrations.md) and
 [ADR 0008](adr/0008-installer-migration-module.md).
+The migration module also owns the gated first-time baseline scan for legacy
+installs, classifying known runtime install surfaces before later migrations
+remove or rewrite anything.
 
 ### Platform Handling
 
