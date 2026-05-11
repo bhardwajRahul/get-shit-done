@@ -72,10 +72,14 @@ function normalizeRelPath(relPath) {
     throw new Error('migration action relPath must be a non-empty string');
   }
   const normalized = relPath.replace(/\\/g, '/');
-  if (normalized.startsWith('/') || normalized.includes('../') || normalized === '..') {
+  if (path.isAbsolute(normalized) || path.win32.isAbsolute(normalized)) {
     throw new Error(`migration action relPath must stay inside configDir: ${relPath}`);
   }
-  return normalized;
+  const segments = normalized.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    throw new Error(`migration action relPath must stay inside configDir: ${relPath}`);
+  }
+  return segments.join('/');
 }
 
 function classifyArtifact(configDir, relPath, manifest) {
@@ -460,7 +464,13 @@ function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().t
     return {
       appliedMigrationIds: journal.appliedMigrationIds,
       journalRelPath,
-      rollback: () => rollbackAppliedMigrationResult({ configDir, journal, journalPath, rollbackRoot, previousInstallStateBytes }),
+      rollback: () => rollbackAppliedMigrationResult({
+        configDir,
+        journal,
+        journalPath,
+        rollbackRoot,
+        previousInstallStateBytes,
+      }),
     };
   } catch (error) {
     const rollbackFailures = [];
@@ -483,6 +493,54 @@ function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().t
       rollbackError.rollbackFailures = rollbackFailures;
       throw rollbackError;
     }
+    throw error;
+  }
+}
+
+function rollbackAppliedMigrationResult({ configDir, journal, journalPath, rollbackRoot, previousInstallStateBytes }) {
+  const failures = [];
+  for (const action of [...journal.actions].reverse()) {
+    if (!action.rollbackRelPath) continue;
+    const rollbackPath = path.join(configDir, action.rollbackRelPath);
+    const dest = path.join(configDir, action.relPath);
+    try {
+      if (fs.existsSync(rollbackPath)) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.copyFileSync(rollbackPath, dest);
+      }
+    } catch (error) {
+      failures.push({ relPath: action.relPath, error: error.message });
+    }
+    if (action.backupRelPath) {
+      try {
+        fs.rmSync(path.join(configDir, action.backupRelPath), { force: true });
+      } catch {
+        // backup cleanup is best-effort; preserve restore failures above
+      }
+    }
+  }
+
+  try {
+    if (previousInstallStateBytes === null) {
+      fs.rmSync(path.join(configDir, INSTALL_STATE_NAME), { force: true });
+    } else {
+      fs.mkdirSync(configDir, { recursive: true });
+      fs.writeFileSync(path.join(configDir, INSTALL_STATE_NAME), previousInstallStateBytes);
+    }
+  } catch (error) {
+    failures.push({ relPath: INSTALL_STATE_NAME, error: error.message });
+  }
+
+  try {
+    fs.rmSync(journalPath, { force: true });
+    fs.rmSync(rollbackRoot, { recursive: true, force: true });
+  } catch {
+    // journal cleanup is best-effort; the rollback above is the safety-critical part
+  }
+
+  if (failures.length > 0) {
+    const error = new Error('migration rollback incomplete');
+    error.rollbackFailures = failures;
     throw error;
   }
 }

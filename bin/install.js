@@ -7129,7 +7129,33 @@ function resolveInstallRelativePath(baseDir, relPath) {
   if (fullPath !== root && !fullPath.startsWith(root + path.sep)) {
     return null;
   }
+  if (hasExistingSymlinkBetween(root, fullPath)) {
+    return null;
+  }
   return { relPath: normalized, fullPath };
+}
+
+function hasExistingSymlinkBetween(root, fullPath) {
+  const resolvedRoot = path.resolve(root);
+  const resolvedFullPath = path.resolve(fullPath);
+  if (resolvedFullPath !== resolvedRoot && !resolvedFullPath.startsWith(resolvedRoot + path.sep)) {
+    return true;
+  }
+
+  let cursor = resolvedRoot;
+  if (fs.existsSync(cursor) && fs.lstatSync(cursor).isSymbolicLink()) {
+    return true;
+  }
+
+  const relative = path.relative(resolvedRoot, resolvedFullPath);
+  for (const segment of relative.split(path.sep)) {
+    if (!segment) continue;
+    cursor = path.join(cursor, segment);
+    if (!fs.existsSync(cursor)) return false;
+    if (fs.lstatSync(cursor).isSymbolicLink()) return true;
+  }
+
+  return false;
 }
 
 /**
@@ -7538,6 +7564,13 @@ function install(isGlobal, runtime = 'claude') {
 
   // Track installation failures
   const failures = [];
+  let installerMigrationResult = null;
+  const rollbackInstallerMigrations = () => {
+    if (!installerMigrationResult || typeof installerMigrationResult.rollback !== 'function') return;
+    const rollback = installerMigrationResult.rollback;
+    installerMigrationResult = null;
+    rollback();
+  };
 
   // Save any locally modified GSD files before they get wiped.
   // The pristine context lets saveLocalPatches populate gsd-pristine/ via
@@ -7549,6 +7582,9 @@ function install(isGlobal, runtime = 'claude') {
     pathPrefix,
     isGlobal,
   });
+
+  // Run manifest-backed cleanup migrations before package materialization.
+  installerMigrationResult = runInstallerMigrations({ configDir: targetDir });
 
   // #3245 — Codex idempotent rollback. Capture pre-install state of ALL
   // directories and files GSD will mutate so that any post-install validation
@@ -7580,13 +7616,6 @@ function install(isGlobal, runtime = 'claude') {
   // Map<filename, Buffer> — content snapshot of each pre-existing gsd-* agent file.
   const codexPreInstallAgentContents = new Map();
   let codexPreInstallVersionBytes = null;
-  let installerMigrationResult = null;
-  const rollbackInstallerMigrations = () => {
-    if (!installerMigrationResult || typeof installerMigrationResult.rollback !== 'function') return;
-    const rollback = installerMigrationResult.rollback;
-    installerMigrationResult = null;
-    rollback();
-  };
   if (isCodex && !isMinimalMode(installMode)) {
     const _preSkillsDir = path.join(targetDir, 'skills');
     if (fs.existsSync(_preSkillsDir)) {
@@ -8357,6 +8386,7 @@ function install(isGlobal, runtime = 'claude') {
     // #3245 CR finding 2 — any throw in the pre-config install operations (skills copy,
     // agents copy, VERSION write, manifest write, etc.) triggers the Codex pre-config
     // rollback so the caller is never left in a partially-installed state.
+    rollbackInstallerMigrations();
     if (_codexPreConfigRollback) {
       _codexPreConfigRollback();
     }
