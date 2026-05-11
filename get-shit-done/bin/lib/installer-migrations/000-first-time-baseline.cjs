@@ -56,8 +56,7 @@ function baselineInstallSurfaces(runtime) {
 function walkFiles(root, relDir, files) {
   const dir = path.join(root, relDir);
   if (!fs.existsSync(dir)) return;
-  const entries = fs.readdirSync(dir, { withFileTypes: true })
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
     const relPath = path.posix.join(relDir, entry.name);
     if (relDir === '' && INTERNAL_TOP_LEVEL_NAMES.has(entry.name)) continue;
@@ -83,7 +82,7 @@ function scanBaselineFiles(configDir, runtime) {
       relPaths.add(normalized);
     }
   }
-  return [...relPaths].sort();
+  return [...relPaths];
 }
 
 function isUserOwnedBaselinePath(relPath) {

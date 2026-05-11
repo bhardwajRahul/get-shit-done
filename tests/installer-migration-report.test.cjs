@@ -62,8 +62,8 @@ test('summarizes every installer migration report category', () => {
       },
       {
         label: 'preserved',
-        relPath: 'hooks/custom.js',
-        reason: 'user-owned hook',
+        relPath: '1 user baseline file',
+        reason: 'first-time baseline scan',
       },
       {
         label: 'skipped',
@@ -73,6 +73,72 @@ test('summarizes every installer migration report category', () => {
       {
         label: 'blocked',
         relPath: 'hooks/gsd-retired-hook.js',
+        reason: 'needs a user choice',
+      },
+    ]
+  );
+});
+
+test('collapses first-time baseline report rows without hiding destructive actions', () => {
+  const blockedAction = {
+    type: 'prompt-user',
+    relPath: 'hooks/gsd-ambiguous.js',
+    reason: 'needs a user choice',
+  };
+  const result = {
+    blocked: [blockedAction],
+    plan: {
+      actions: [
+        {
+          type: 'record-baseline',
+          relPath: 'hooks/statusline.js',
+          reason: 'first-time baseline scan',
+        },
+        {
+          type: 'record-baseline',
+          relPath: 'hooks/workflow-guard.js',
+          reason: 'first-time baseline scan',
+        },
+        {
+          type: 'baseline-preserve-user',
+          relPath: 'hooks/custom.js',
+          reason: 'first-time baseline scan',
+        },
+        {
+          type: 'remove-managed',
+          relPath: 'hooks/retired.js',
+          reason: 'retired hook',
+        },
+        blockedAction,
+      ],
+    },
+  };
+
+  assert.deepEqual(
+    summarizeInstallerMigrationResult(result).rows.map((row) => ({
+      label: row.label,
+      relPath: row.relPath,
+      reason: row.reason,
+    })),
+    [
+      {
+        label: 'recorded',
+        relPath: '2 managed baseline files',
+        reason: 'first-time baseline scan',
+      },
+      {
+        label: 'preserved',
+        relPath: '1 user baseline file',
+        reason: 'first-time baseline scan',
+      },
+      {
+        label: 'removed',
+        relPath: 'hooks/retired.js',
+        reason: 'retired hook',
+      },
+      {
+        label: 'blocked',
+        relPath: 'hooks/gsd-ambiguous.js',
         reason: 'needs a user choice',
       },
     ]

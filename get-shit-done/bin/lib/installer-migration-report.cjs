@@ -19,21 +19,67 @@ function blockedInstallerMigrationActions(result) {
   return [];
 }
 
+function baselineSummaryLabel(count, noun) {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+function baselineSummaryRow(type, actions) {
+  const count = actions.length;
+  if (type === 'record-baseline') {
+    return {
+      label: 'recorded',
+      relPath: baselineSummaryLabel(count, 'managed baseline file'),
+      reason: 'first-time baseline scan',
+      action: { type: 'record-baseline-summary', count, actions },
+    };
+  }
+  return {
+    label: 'preserved',
+    relPath: baselineSummaryLabel(count, 'user baseline file'),
+    reason: 'first-time baseline scan',
+    action: { type: 'baseline-preserve-user-summary', count, actions },
+  };
+}
+
 function summarizeInstallerMigrationResult(result) {
   const plan = result && result.plan;
   const actions = plan && Array.isArray(plan.actions) ? plan.actions : [];
   const blocked = blockedInstallerMigrationActions(result);
   const blockedSet = new Set(blocked);
+  const rows = [];
+  const baselineIndexes = new Map();
+  const baselineActions = new Map();
 
-  return {
-    hasReportableActions: actions.length > 0 || blocked.length > 0,
-    blocked,
-    rows: actions.map((action) => ({
+  for (const action of actions) {
+    const type = action && action.type;
+    if (type === 'record-baseline' || type === 'baseline-preserve-user') {
+      if (!baselineActions.has(type)) {
+        baselineActions.set(type, []);
+        baselineIndexes.set(type, rows.length);
+        rows.push(null);
+      }
+      baselineActions.get(type).push(action);
+      continue;
+    }
+
+    rows.push({
       label: blockedSet.has(action) ? 'blocked' : installerMigrationActionLabel(action),
       relPath: action.relPath,
       reason: action.reason || '',
       action,
-    })),
+    });
+  }
+
+  // Phase 4 requires action reporting without flooding first-time baseline installs:
+  // docs/installer-migrations.md#phase-4-installupdate-integration.
+  for (const [type, baselineRows] of baselineActions) {
+    rows[baselineIndexes.get(type)] = baselineSummaryRow(type, baselineRows);
+  }
+
+  return {
+    hasReportableActions: actions.length > 0 || blocked.length > 0,
+    blocked,
+    rows,
   };
 }
 

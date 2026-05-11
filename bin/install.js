@@ -77,6 +77,7 @@ const {
   stageSkillsForMode,
 } = require(path.join(_gsdLibDir, 'install-profiles.cjs'));
 const {
+  discoverInstallerMigrations,
   runInstallerMigrations,
 } = require(path.join(_gsdLibDir, 'installer-migrations.cjs'));
 const {
@@ -7482,7 +7483,7 @@ function reportInstallerMigrationResult(result) {
   }
 }
 
-function install(isGlobal, runtime = 'claude') {
+function install(isGlobal, runtime = 'claude', options = {}) {
   const isOpencode = runtime === 'opencode';
   const isGemini = runtime === 'gemini';
   const isKilo = runtime === 'kilo';
@@ -7746,6 +7747,7 @@ function install(isGlobal, runtime = 'claude') {
     configDir: targetDir,
     runtime,
     scope: isGlobal ? 'global' : 'local',
+    migrations: options.installerMigrations,
     baselineScan: true,
   });
   reportInstallerMigrationResult(installerMigrationResult);
@@ -8377,6 +8379,12 @@ function install(isGlobal, runtime = 'claude') {
   }
 
   } catch (_earlyInstallErr) {
+    // Installer Migration Module Phase 4: docs/installer-migrations.md
+    // requires safe migrations to run before package materialization without
+    // leaving stale state behind when materialization fails. Roll migration
+    // actions back for every runtime; Codex then layers its broader runtime
+    // snapshot rollback on top.
+    rollbackInstallerMigrations();
     // #3245 CR finding 2 — any throw in the pre-config install operations (skills copy,
     // agents copy, VERSION write, manifest write, etc.) triggers the Codex pre-config
     // rollback so the caller is never left in a partially-installed state.
@@ -9112,6 +9120,7 @@ function install(isGlobal, runtime = 'claude') {
     updateBannerCommand,
     runtime,
     configDir: targetDir,
+    rollbackInstallerMigrations,
   };
 }
 
@@ -10573,40 +10582,69 @@ function trySelfLinkGsdSdkWindows(shimSrc) {
  */
 function installAllRuntimes(runtimes, isGlobal, isInteractive) {
   const results = [];
+  const installerMigrations = discoverInstallerMigrations({
+    migrationsDir: path.join(_gsdLibDir, 'installer-migrations'),
+  });
 
   for (const runtime of runtimes) {
-    const result = install(isGlobal, runtime);
+    const result = install(isGlobal, runtime, { installerMigrations });
     results.push(result);
   }
 
   const statuslineRuntimes = ['claude', 'gemini'];
   const primaryStatuslineResult = results.find(r => statuslineRuntimes.includes(r.runtime));
 
-  const finalize = (shouldInstallStatusline, shouldInstallBanner) => {
-    // Verify sdk/dist/cli.js is present and executable. The dist is shipped
-    // prebuilt in the tarball (fix/2441-sdk-decouple); gsd-sdk reaches users via
-    // the parent package's bin/gsd-sdk.js shim, so no sub-install is needed.
-    // Skip with --no-sdk. Skip with isLocal (#2678 — local installs don't own global npm).
-    // #3033: pass forceSdk so --sdk overrides the local-install skip.
-    installSdkIfNeeded({ isLocal: !isGlobal, forceSdk: hasSdk });
-
-    const printSummaries = () => {
-      for (const result of results) {
-        const useStatusline = statuslineRuntimes.includes(result.runtime) && shouldInstallStatusline;
-        finishInstall(
-          result.settingsPath,
-          result.settings,
-          result.statuslineCommand,
-          useStatusline,
-          result.runtime,
-          isGlobal,
-          result.configDir,
-          { shouldInstallBanner: !!shouldInstallBanner, bannerCommand: result.updateBannerCommand }
-        );
+  const rollbackFinalizedInstallerMigrations = (error) => {
+    const rollbackFailures = [];
+    for (const result of [...results].reverse()) {
+      if (!result || typeof result.rollbackInstallerMigrations !== 'function') continue;
+      try {
+        result.rollbackInstallerMigrations();
+      } catch (rollbackError) {
+        rollbackFailures.push({
+          runtime: result.runtime,
+          error: rollbackError.message,
+        });
       }
-    };
+    }
+    if (rollbackFailures.length > 0) {
+      error.installerMigrationRollbackFailures = rollbackFailures;
+    }
+  };
 
-    printSummaries();
+  const finalize = (shouldInstallStatusline, shouldInstallBanner) => {
+    try {
+      // Verify sdk/dist/cli.js is present and executable. The dist is shipped
+      // prebuilt in the tarball (fix/2441-sdk-decouple); gsd-sdk reaches users via
+      // the parent package's bin/gsd-sdk.js shim, so no sub-install is needed.
+      // Skip with --no-sdk. Skip with isLocal (#2678 — local installs don't own global npm).
+      // #3033: pass forceSdk so --sdk overrides the local-install skip.
+      installSdkIfNeeded({ isLocal: !isGlobal, forceSdk: hasSdk });
+
+      const printSummaries = () => {
+        for (const result of results) {
+          const useStatusline = statuslineRuntimes.includes(result.runtime) && shouldInstallStatusline;
+          finishInstall(
+            result.settingsPath,
+            result.settings,
+            result.statuslineCommand,
+            useStatusline,
+            result.runtime,
+            isGlobal,
+            result.configDir,
+            { shouldInstallBanner: !!shouldInstallBanner, bannerCommand: result.updateBannerCommand }
+          );
+        }
+      };
+
+      printSummaries();
+    } catch (error) {
+      // Phase 4 install/update integration requires safe migrations to roll
+      // back when later package/finalization materialization fails:
+      // docs/installer-migrations.md#phase-4-installupdate-integration.
+      rollbackFinalizedInstallerMigrations(error);
+      throw error;
+    }
   };
 
   // Statusline first; if it won't actually be installed (declined, or local
@@ -10681,6 +10719,7 @@ if (process.env.GSD_TEST_MODE) {
     readGsdRuntimeProfileResolver,
     readGsdEffectiveModelOverrides,
     install,
+    installAllRuntimes,
     uninstall,
     installSdkIfNeeded,
     buildSdkFailFastReport,

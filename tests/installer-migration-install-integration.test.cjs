@@ -71,6 +71,21 @@ function captureConsole(fn) {
   }
 }
 
+function withWriteFailure(matchPath, fn) {
+  const originalWriteFileSync = fs.writeFileSync;
+  fs.writeFileSync = (filePath, ...args) => {
+    if (path.resolve(String(filePath)) === path.resolve(matchPath)) {
+      throw new Error(`injected write failure for ${path.basename(matchPath)}`);
+    }
+    return originalWriteFileSync.call(fs, filePath, ...args);
+  };
+  try {
+    return fn();
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+  }
+}
+
 function stripAnsi(value) {
   return value.replace(/\x1b\[[0-9;]*m/g, '');
 }
@@ -136,6 +151,56 @@ describe('installer migration install integration', { concurrency: false }, () =
     assert.equal(fs.readFileSync(path.join(codexHome, 'hooks/gsd-retired-hook.js'), 'utf8'), 'old gsd hook\n');
     assert.equal(fs.existsSync(path.join(codexHome, 'skills')), false);
     assert.equal(fs.existsSync(path.join(codexHome, 'get-shit-done', 'VERSION')), false);
+  });
+
+  test('rolls back applied migrations when package materialization fails for non-Codex installs', () => {
+    const claudeHome = path.join(tmpRoot, '.claude');
+    fs.mkdirSync(claudeHome, { recursive: true });
+    writeFile(claudeHome, 'hooks/statusline.js', 'legacy managed hook\n');
+    writeManifest(claudeHome, {
+      'hooks/statusline.js': sha256('legacy managed hook\n'),
+    });
+
+    assert.throws(
+      () => captureConsole(() =>
+        withEnv('CLAUDE_CONFIG_DIR', claudeHome, () =>
+          withWriteFailure(path.join(claudeHome, 'get-shit-done', 'VERSION'), () => install(true, 'claude'))
+        )
+      ),
+      /injected write failure for VERSION/
+    );
+
+    assert.equal(
+      fs.readFileSync(path.join(claudeHome, 'hooks/statusline.js'), 'utf8'),
+      'legacy managed hook\n'
+    );
+    assert.equal(fs.existsSync(path.join(claudeHome, 'gsd-install-state.json')), false);
+  });
+
+  test('rolls back applied migrations when multi-runtime finalization fails', () => {
+    const claudeHome = path.join(tmpRoot, '.claude');
+    fs.mkdirSync(claudeHome, { recursive: true });
+    writeFile(claudeHome, 'hooks/statusline.js', 'legacy managed hook\n');
+    writeManifest(claudeHome, {
+      'hooks/statusline.js': sha256('legacy managed hook\n'),
+    });
+
+    assert.throws(
+      () => captureConsole(() =>
+        withEnv('CLAUDE_CONFIG_DIR', claudeHome, () =>
+          withWriteFailure(path.join(claudeHome, 'settings.json'), () =>
+            installModule.installAllRuntimes(['claude'], true, false)
+          )
+        )
+      ),
+      /injected write failure for settings\.json/
+    );
+
+    assert.equal(
+      fs.readFileSync(path.join(claudeHome, 'hooks/statusline.js'), 'utf8'),
+      'legacy managed hook\n'
+    );
+    assert.equal(fs.existsSync(path.join(claudeHome, 'gsd-install-state.json')), false);
   });
 
   for (const runtime of SUPPORTED_RUNTIMES) {

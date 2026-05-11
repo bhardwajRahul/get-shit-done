@@ -7,6 +7,7 @@ const crypto = require('crypto');
 
 const {
   applyInstallerMigrationPlan,
+  classifyArtifact,
   discoverInstallerMigrations,
   INSTALL_STATE_NAME,
   planInstallerMigrations,
@@ -334,7 +335,7 @@ test('plans backup before removal for a modified managed file', () => {
     assert.equal(plan.actions[0].classification, 'managed-modified');
     assert.equal(plan.actions[0].originalHash, sha256('managed hook\n'));
     assert.equal(plan.actions[0].currentHash, sha256('user changed hook\n'));
-    assert.equal(plan.actions[0].backupRelPath, 'gsd-migration-backups/2026-05-11-remove-old-hook/hooks/old-hook.js');
+    assert.equal(plan.actions[0].backupRelPath, null);
   } finally {
     cleanup(configDir);
   }
@@ -374,6 +375,77 @@ test('blocks removal of unknown files by preserving them by default', () => {
   }
 });
 
+test('fails closed when install state JSON is malformed', (t) => {
+  const configDir = createTempInstall();
+  t.after(() => cleanup(configDir));
+
+  fs.writeFileSync(path.join(configDir, INSTALL_STATE_NAME), '{ not json\n', 'utf8');
+
+  assert.throws(
+    () => readInstallState(configDir),
+    /invalid installer migration state JSON/
+  );
+});
+
+test('computes each migration checksum once per planned migration', (t) => {
+  const configDir = createTempInstall();
+  t.after(() => cleanup(configDir));
+
+  writeFile(configDir, 'hooks/first.js', 'first hook\n');
+  writeFile(configDir, 'hooks/second.js', 'second hook\n');
+  writeManifest(configDir, {
+    'hooks/first.js': sha256('first hook\n'),
+    'hooks/second.js': sha256('second hook\n'),
+  });
+  let checksumReads = 0;
+  const migration = {
+    id: '2026-05-11-remove-two-hooks',
+    description: 'Remove retired hooks',
+    get checksum() {
+      checksumReads += 1;
+      return 'sha256:precomputed';
+    },
+    plan: () => [
+      { type: 'remove-managed', relPath: 'hooks/first.js', reason: 'retired hook' },
+      { type: 'remove-managed', relPath: 'hooks/second.js', reason: 'retired hook' },
+    ],
+  };
+
+  const plan = planInstallerMigrations({
+    configDir,
+    migrations: [migration],
+  });
+
+  assert.equal(plan.actions.length, 2);
+  assert.equal(checksumReads, 1);
+});
+
+test('classifies large files without loading the whole file through readFileSync', (t) => {
+  const configDir = createTempInstall();
+  const originalReadFileSync = fs.readFileSync;
+  t.after(() => {
+    fs.readFileSync = originalReadFileSync;
+    cleanup(configDir);
+  });
+
+  const relPath = 'skills/gsd-large/SKILL.md';
+  const fullPath = path.join(configDir, relPath);
+  fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+  fs.writeFileSync(fullPath, Buffer.alloc(1024 * 1024 + 1, 'a'));
+
+  fs.readFileSync = (filePath, ...args) => {
+    if (path.resolve(String(filePath)) === path.resolve(fullPath)) {
+      throw new Error('large file should be streamed for hashing');
+    }
+    return originalReadFileSync.call(fs, filePath, ...args);
+  };
+
+  const artifact = classifyArtifact(configDir, relPath, { files: {} });
+
+  assert.equal(artifact.classification, 'unknown');
+  assert.match(artifact.currentHash, /^[0-9a-f]{64}$/);
+});
+
 test('applies an unblocked plan with a journal and install-state update', () => {
   const configDir = createTempInstall();
   try {
@@ -408,7 +480,10 @@ test('applies an unblocked plan with a journal and install-state update', () => 
 
     assert.equal(fs.existsSync(path.join(configDir, 'hooks/old-hook.js')), false);
     assert.deepEqual(result.appliedMigrationIds, ['2026-05-11-remove-old-hook']);
-    assert.equal(result.journalRelPath, 'gsd-migration-journal/2026-05-11T00-00-01-000Z.json');
+    assert.match(
+      result.journalRelPath,
+      /^gsd-migration-journal\/2026-05-11T00-00-01-000Z-[0-9a-f]+\.json$/
+    );
 
     const journal = JSON.parse(fs.readFileSync(path.join(configDir, result.journalRelPath), 'utf8'));
     assert.deepEqual(journal.appliedMigrationIds, ['2026-05-11-remove-old-hook']);
@@ -420,6 +495,174 @@ test('applies an unblocked plan with a journal and install-state update', () => 
   } finally {
     cleanup(configDir);
   }
+});
+
+test('uses unique journal paths for applies that share a timestamp', (t) => {
+  const configDir = createTempInstall();
+  t.after(() => cleanup(configDir));
+
+  writeFile(configDir, 'hooks/first.js', 'first hook\n');
+  writeFile(configDir, 'hooks/second.js', 'second hook\n');
+  writeManifest(configDir, {
+    'hooks/first.js': sha256('first hook\n'),
+    'hooks/second.js': sha256('second hook\n'),
+  });
+  const now = () => '2026-05-11T00:00:09.000Z';
+
+  const first = applyInstallerMigrationPlan({
+    configDir,
+    plan: {
+      blocked: [],
+      actions: [{
+        migrationId: 'first-migration',
+        migrationChecksum: 'sha256:first',
+        type: 'remove-managed',
+        relPath: 'hooks/first.js',
+        reason: 'first',
+        classification: 'managed-pristine',
+        originalHash: sha256('first hook\n'),
+        currentHash: sha256('first hook\n'),
+      }],
+    },
+    now,
+  });
+  const second = applyInstallerMigrationPlan({
+    configDir,
+    plan: {
+      blocked: [],
+      actions: [{
+        migrationId: 'second-migration',
+        migrationChecksum: 'sha256:second',
+        type: 'remove-managed',
+        relPath: 'hooks/second.js',
+        reason: 'second',
+        classification: 'managed-pristine',
+        originalHash: sha256('second hook\n'),
+        currentHash: sha256('second hook\n'),
+      }],
+    },
+    now,
+  });
+
+  assert.notEqual(first.journalRelPath, second.journalRelPath);
+  assert.equal(fs.existsSync(path.join(configDir, first.journalRelPath)), true);
+  assert.equal(fs.existsSync(path.join(configDir, second.journalRelPath)), true);
+});
+
+test('stores modified-file backups under the unique migration run journal', (t) => {
+  const configDir = createTempInstall();
+  t.after(() => cleanup(configDir));
+
+  writeFile(configDir, 'hooks/old-hook.js', 'user changed hook\n');
+  writeManifest(configDir, {
+    'hooks/old-hook.js': sha256('managed hook\n'),
+  });
+
+  const plan = planInstallerMigrations({
+    configDir,
+    migrations: [
+      {
+        id: '2026-05-11-remove-old-hook',
+        description: 'Remove retired hook',
+        plan: () => [{
+          type: 'remove-managed',
+          relPath: 'hooks/old-hook.js',
+          reason: 'retired hook',
+        }],
+      },
+    ],
+    now: () => '2026-05-11T00:00:00.000Z',
+  });
+
+  const result = applyInstallerMigrationPlan({
+    configDir,
+    plan,
+    now: () => '2026-05-11T00:00:10.000Z',
+  });
+  const journal = JSON.parse(fs.readFileSync(path.join(configDir, result.journalRelPath), 'utf8'));
+  const backupRelPath = journal.actions[0].backupRelPath;
+
+  assert.match(backupRelPath, /^gsd-migration-journal\/2026-05-11T00-00-10-000Z-[0-9a-f]+-backups\/hooks\/old-hook\.js$/);
+  assert.equal(fs.readFileSync(path.join(configDir, backupRelPath), 'utf8'), 'user changed hook\n');
+});
+
+test('successful migration rollback removes run-scoped backup directories', (t) => {
+  const configDir = createTempInstall();
+  t.after(() => cleanup(configDir));
+
+  writeFile(configDir, 'hooks/old-hook.js', 'user changed hook\n');
+  writeManifest(configDir, {
+    'hooks/old-hook.js': sha256('managed hook\n'),
+  });
+
+  const plan = planInstallerMigrations({
+    configDir,
+    migrations: [
+      {
+        id: '2026-05-11-remove-old-hook',
+        description: 'Remove retired hook',
+        plan: () => [{
+          type: 'remove-managed',
+          relPath: 'hooks/old-hook.js',
+          reason: 'retired hook',
+        }],
+      },
+    ],
+  });
+
+  const result = applyInstallerMigrationPlan({
+    configDir,
+    plan,
+    now: () => '2026-05-11T00:00:11.000Z',
+  });
+
+  result.rollback();
+
+  assert.equal(fs.readFileSync(path.join(configDir, 'hooks/old-hook.js'), 'utf8'), 'user changed hook\n');
+  assert.equal(fs.existsSync(path.join(configDir, result.journalRelPath)), false);
+  assert.equal(
+    fs.readdirSync(path.join(configDir, 'gsd-migration-journal')).some((name) => name.includes('backups')),
+    false
+  );
+});
+
+test('refuses to run migrations while another installer owns the migration lock', (t) => {
+  const configDir = createTempInstall();
+  t.after(() => cleanup(configDir));
+  fs.writeFileSync(path.join(configDir, 'gsd-install-migration.lock'), 'held by test\n', 'utf8');
+
+  assert.throws(
+    () => runInstallerMigrations({
+      configDir,
+      migrations: [],
+      lockTimeoutMs: 0,
+    }),
+    /installer migration lock is held/
+  );
+});
+
+test('reports lock release failures after migration work completes', (t) => {
+  const configDir = createTempInstall();
+  const originalRmSync = fs.rmSync;
+  t.after(() => {
+    fs.rmSync = originalRmSync;
+    cleanup(configDir);
+  });
+
+  fs.rmSync = (targetPath, ...args) => {
+    if (path.basename(String(targetPath)) === 'gsd-install-migration.lock') {
+      throw new Error('simulated lock unlink failure');
+    }
+    return originalRmSync.call(fs, targetPath, ...args);
+  };
+
+  assert.throws(
+    () => runInstallerMigrations({
+      configDir,
+      migrations: [],
+    }),
+    /failed to release installer migration lock/
+  );
 });
 
 test('rolls back touched files and leaves state unchanged when apply fails', () => {
@@ -466,10 +709,69 @@ test('rolls back touched files and leaves state unchanged when apply fails', () 
 
     assert.equal(fs.readFileSync(path.join(configDir, 'hooks/old-hook.js'), 'utf8'), 'managed hook\n');
     assert.deepEqual(readInstallState(configDir).appliedMigrations, []);
-    assert.equal(fs.existsSync(path.join(configDir, 'gsd-migration-journal', '2026-05-11T00-00-02-000Z.json')), false);
+    assert.equal(
+      fs.existsSync(path.join(configDir, 'gsd-migration-journal')) &&
+        fs.readdirSync(path.join(configDir, 'gsd-migration-journal')).some((name) =>
+          name.startsWith('2026-05-11T00-00-02-000Z')
+        ),
+      false
+    );
   } finally {
     cleanup(configDir);
   }
+});
+
+test('cleans rollback and backup artifacts when migration apply fails', (t) => {
+  const configDir = createTempInstall();
+  t.after(() => cleanup(configDir));
+
+  writeFile(configDir, 'hooks/old-hook.js', 'user changed hook\n');
+  writeManifest(configDir, {
+    'hooks/old-hook.js': sha256('managed hook\n'),
+  });
+  const plan = {
+    blocked: [],
+    actions: [
+      {
+        migrationId: '2026-05-11-remove-old-hook',
+        migrationChecksum: 'sha256:remove',
+        type: 'backup-and-remove',
+        relPath: 'hooks/old-hook.js',
+        reason: 'retired hook',
+        classification: 'managed-modified',
+        originalHash: sha256('managed hook\n'),
+        currentHash: sha256('user changed hook\n'),
+      },
+      {
+        migrationId: '2026-05-11-remove-old-hook',
+        migrationChecksum: 'sha256:remove',
+        type: 'unsupported-test-action',
+        relPath: 'hooks/other.js',
+        reason: 'force failure',
+        classification: 'managed-pristine',
+        originalHash: null,
+        currentHash: null,
+      },
+    ],
+  };
+
+  assert.throws(
+    () => applyInstallerMigrationPlan({
+      configDir,
+      plan,
+      now: () => '2026-05-11T00:00:12.000Z',
+    }),
+    /unsupported migration action type/
+  );
+
+  assert.equal(fs.readFileSync(path.join(configDir, 'hooks/old-hook.js'), 'utf8'), 'user changed hook\n');
+  assert.equal(
+    fs.existsSync(path.join(configDir, 'gsd-migration-journal')) &&
+      fs.readdirSync(path.join(configDir, 'gsd-migration-journal')).some((name) =>
+        name.startsWith('2026-05-11T00-00-12-000Z')
+      ),
+    false
+  );
 });
 
 test('reports rollback restore failures instead of swallowing them', () => {
@@ -506,7 +808,7 @@ test('reports rollback restore failures instead of swallowing them', () => {
     };
 
     fs.copyFileSync = (src, dest) => {
-      if (String(src).includes('2026-05-11T00-00-04-000Z-rollback')) {
+      if (/2026-05-11T00-00-04-000Z-[0-9a-f]+-rollback/.test(String(src))) {
         throw new Error('simulated rollback copy failure');
       }
       return originalCopyFileSync(src, dest);
