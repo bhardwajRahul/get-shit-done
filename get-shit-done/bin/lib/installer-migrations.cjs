@@ -12,6 +12,10 @@ function sha256File(filePath) {
   return crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
 }
 
+function sha256Text(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
+}
+
 function readJsonIfPresent(filePath, fallback) {
   if (!fs.existsSync(filePath)) return fallback;
   try {
@@ -47,8 +51,20 @@ function readInstallState(configDir) {
 
 function writeInstallState(configDir, state) {
   fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(path.join(configDir, INSTALL_STATE_NAME), JSON.stringify(state, null, 2) + '\n', 'utf8');
+  writeFileAtomicSync(path.join(configDir, INSTALL_STATE_NAME), JSON.stringify(state, null, 2) + '\n');
   return state;
+}
+
+function readJson(configDir, relPath) {
+  const { fullPath } = ensureInsideConfig(configDir, relPath);
+  if (!fs.existsSync(fullPath)) {
+    return { exists: false, value: null, error: null };
+  }
+  try {
+    return { exists: true, value: JSON.parse(fs.readFileSync(fullPath, 'utf8')), error: null };
+  } catch (error) {
+    return { exists: true, value: null, error };
+  }
 }
 
 function normalizeRelPath(relPath) {
@@ -91,6 +107,56 @@ function appliedMigrationIds(state) {
   );
 }
 
+function appliedMigrationEntries(state) {
+  const entries = new Map();
+  for (const entry of state.appliedMigrations) {
+    if (entry && typeof entry.id === 'string' && !entries.has(entry.id)) {
+      entries.set(entry.id, entry);
+    }
+  }
+  return entries;
+}
+
+function migrationChecksum(migration) {
+  if (typeof migration.checksum === 'string' && migration.checksum) return migration.checksum;
+  const serializable = {
+    id: migration.id,
+    title: migration.title || null,
+    description: migration.description || null,
+    introducedIn: migration.introducedIn || null,
+    runtimes: migration.runtimes || null,
+    scopes: migration.scopes || null,
+    destructive: migration.destructive === true,
+    runtimeContract: migration.runtimeContract || null,
+    plan: typeof migration.plan === 'function' ? migration.plan.toString() : null,
+  };
+  return `sha256:${sha256Text(JSON.stringify(serializable))}`;
+}
+
+function assertAppliedMigrationChecksums(state, migrations) {
+  const applied = appliedMigrationEntries(state);
+  for (const migration of migrations) {
+    const entry = applied.get(migration.id);
+    if (!entry || !entry.checksum) continue;
+    const checksum = migrationChecksum(migration);
+    if (entry.checksum !== checksum) {
+      throw new Error(
+        `applied migration checksum changed for ${migration.id}; create a new fix-forward migration id`
+      );
+    }
+  }
+}
+
+function migrationMatchesContext(migration, { runtime, scope }) {
+  if (Array.isArray(migration.runtimes) && migration.runtimes.length > 0) {
+    if (!runtime || !migration.runtimes.includes(runtime)) return false;
+  }
+  if (Array.isArray(migration.scopes) && migration.scopes.length > 0) {
+    if (!scope || !migration.scopes.includes(scope)) return false;
+  }
+  return true;
+}
+
 function validateMigrationRecord(record, source) {
   if (!record || typeof record !== 'object') {
     throw new Error(`migration record must export an object: ${source}`);
@@ -112,10 +178,11 @@ function discoverInstallerMigrations({ migrationsDir }) {
     .sort()
     .flatMap((fileName) => {
       const source = path.join(migrationsDir, fileName);
+      const checksum = `sha256:${sha256File(source)}`;
       delete require.cache[require.resolve(source)];
       const exported = require(source);
       const records = Array.isArray(exported) ? exported : [exported];
-      return records.map((record) => validateMigrationRecord(record, source));
+      return records.map((record) => validateMigrationRecord({ ...record, checksum: record.checksum || checksum }, source));
     });
 }
 
@@ -133,14 +200,44 @@ function ensureInsideConfig(configDir, relPath) {
   return { normalized, fullPath };
 }
 
-function planInstallerMigrations({ configDir, migrations, now = () => new Date().toISOString() }) {
+function isStructurallyEmpty(value) {
+  if (value === null || value === undefined) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return typeof value === 'object' && Object.keys(value).length === 0;
+}
+
+function writeFileAtomicSync(filePath, content) {
+  const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    fs.writeFileSync(tmpPath, content, 'utf8');
+    fs.renameSync(tmpPath, filePath);
+  } catch (error) {
+    try {
+      fs.rmSync(tmpPath, { force: true });
+    } catch {
+      // best-effort cleanup only; preserve the original write failure
+    }
+    throw error;
+  }
+}
+
+function journalAction(action, status, extras = {}) {
+  const { value, ...safeAction } = action;
+  return { ...safeAction, ...extras, status };
+}
+
+function planInstallerMigrations({ configDir, runtime = null, scope = null, migrations, now = () => new Date().toISOString() }) {
   if (!configDir) throw new Error('configDir is required');
   if (!Array.isArray(migrations)) throw new Error('migrations must be an array');
 
   const manifest = readInstallManifest(configDir);
   const state = readInstallState(configDir);
+  const scopedMigrations = migrations.filter((migration) =>
+    migration && migrationMatchesContext(migration, { runtime, scope })
+  );
+  assertAppliedMigrationChecksums(state, scopedMigrations);
   const applied = appliedMigrationIds(state);
-  const pending = migrations.filter((migration) => migration && !applied.has(migration.id));
+  const pending = scopedMigrations.filter((migration) => !applied.has(migration.id));
   const actions = [];
   const blocked = [];
   const classifications = new Map();
@@ -161,10 +258,13 @@ function planInstallerMigrations({ configDir, migrations, now = () => new Date()
     }
     const plannedActions = migration.plan({
       configDir,
+      runtime,
+      scope,
       manifest,
       state,
       now,
       classifyArtifact: classify,
+      readJson: (relPath) => readJson(configDir, relPath),
     });
     if (!Array.isArray(plannedActions)) {
       throw new Error(`migration ${migration.id} plan must return an array`);
@@ -181,6 +281,7 @@ function planInstallerMigrations({ configDir, migrations, now = () => new Date()
       }
       const action = {
         migrationId: migration.id,
+        migrationChecksum: migrationChecksum(migration),
         type: protectedType,
         relPath,
         reason: rawAction.reason || migration.description || '',
@@ -194,7 +295,11 @@ function planInstallerMigrations({ configDir, migrations, now = () => new Date()
       if (action.type === 'backup-and-remove') {
         action.backupRelPath = path.posix.join('gsd-migration-backups', migration.id, relPath);
       }
-      if (action.classification === 'unknown') blocked.push(action);
+      if (action.type === 'rewrite-json') {
+        action.value = rawAction.value;
+        action.deleteIfEmpty = rawAction.deleteIfEmpty === true;
+      }
+      if (action.classification === 'unknown' && action.type !== 'rewrite-json') blocked.push(action);
       actions.push(action);
     }
   }
@@ -211,6 +316,54 @@ function planInstallerMigrations({ configDir, migrations, now = () => new Date()
 
 function uniqueActionMigrationIds(actions) {
   return [...new Set(actions.map((action) => action.migrationId).filter(Boolean))];
+}
+
+function rollbackAppliedMigrationResult({ configDir, journal, journalPath, rollbackRoot, previousInstallStateBytes }) {
+  const failures = [];
+  for (const action of [...journal.actions].reverse()) {
+    if (!action.rollbackRelPath) continue;
+    const rollbackPath = path.join(configDir, action.rollbackRelPath);
+    const dest = path.join(configDir, action.relPath);
+    try {
+      if (fs.existsSync(rollbackPath)) {
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.copyFileSync(rollbackPath, dest);
+      }
+    } catch (error) {
+      failures.push({ relPath: action.relPath, error: error.message });
+    }
+    if (action.backupRelPath) {
+      try {
+        fs.rmSync(path.join(configDir, action.backupRelPath), { force: true });
+      } catch {
+        // backup cleanup is best-effort; preserve restore failures above
+      }
+    }
+  }
+
+  try {
+    if (previousInstallStateBytes === null) {
+      fs.rmSync(path.join(configDir, INSTALL_STATE_NAME), { force: true });
+    } else {
+      fs.mkdirSync(configDir, { recursive: true });
+      writeFileAtomicSync(path.join(configDir, INSTALL_STATE_NAME), previousInstallStateBytes);
+    }
+  } catch (error) {
+    failures.push({ relPath: INSTALL_STATE_NAME, error: error.message });
+  }
+
+  try {
+    fs.rmSync(journalPath, { force: true });
+    fs.rmSync(rollbackRoot, { recursive: true, force: true });
+  } catch {
+    // journal cleanup is best-effort; the rollback above is the safety-critical part
+  }
+
+  if (failures.length > 0) {
+    const error = new Error('migration rollback incomplete');
+    error.rollbackFailures = failures;
+    throw error;
+  }
 }
 
 function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().toISOString() }) {
@@ -239,17 +392,13 @@ function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().t
 
   try {
     for (const action of plan.actions) {
-      if (action.type === 'preserve-user') {
-        journal.actions.push({ ...action, status: 'preserved' });
-        continue;
-      }
-      if (action.type !== 'remove-managed' && action.type !== 'backup-and-remove') {
+      if (action.type !== 'remove-managed' && action.type !== 'backup-and-remove' && action.type !== 'rewrite-json') {
         throw new Error(`unsupported migration action type: ${action.type}`);
       }
 
       const { normalized, fullPath } = ensureInsideConfig(configDir, action.relPath);
       if (!fs.existsSync(fullPath)) {
-        journal.actions.push({ ...action, status: 'missing' });
+        journal.actions.push(journalAction(action, 'missing'));
         continue;
       }
 
@@ -258,14 +407,34 @@ function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().t
       fs.copyFileSync(fullPath, rollbackPath);
       rollback.push({ relPath: normalized, rollbackPath });
 
+      if (action.type === 'rewrite-json') {
+        if (action.deleteIfEmpty && isStructurallyEmpty(action.value)) {
+          fs.rmSync(fullPath, { force: true });
+          journal.actions.push(journalAction(action, 'removed', {
+            rollbackRelPath: path.posix.join(rollbackRootRelPath, normalized),
+          }));
+        } else {
+          writeFileAtomicSync(fullPath, JSON.stringify(action.value, null, 2) + '\n');
+          journal.actions.push(journalAction(action, 'rewritten', {
+            rollbackRelPath: path.posix.join(rollbackRootRelPath, normalized),
+          }));
+        }
+        continue;
+      }
+
       if (action.type === 'backup-and-remove') {
         const backupRelPath = action.backupRelPath || path.posix.join('gsd-migration-backups', action.migrationId, normalized);
         const backupPath = path.join(configDir, backupRelPath);
         fs.mkdirSync(path.dirname(backupPath), { recursive: true });
         fs.copyFileSync(fullPath, backupPath);
-        journal.actions.push({ ...action, backupRelPath, rollbackRelPath: path.posix.join(rollbackRootRelPath, normalized), status: 'removed' });
+        journal.actions.push(journalAction(action, 'removed', {
+          backupRelPath,
+          rollbackRelPath: path.posix.join(rollbackRootRelPath, normalized),
+        }));
       } else {
-        journal.actions.push({ ...action, rollbackRelPath: path.posix.join(rollbackRootRelPath, normalized), status: 'removed' });
+        journal.actions.push(journalAction(action, 'removed', {
+          rollbackRelPath: path.posix.join(rollbackRootRelPath, normalized),
+        }));
       }
       fs.rmSync(fullPath, { force: true });
     }
@@ -278,7 +447,13 @@ function applyInstallerMigrationPlan({ configDir, plan, now = () => new Date().t
     const nextApplied = [...state.appliedMigrations];
     for (const id of journal.appliedMigrationIds) {
       if (!applied.has(id)) {
-        nextApplied.push({ id, appliedAt, journal: journalRelPath });
+        const action = plan.actions.find((candidate) => candidate.migrationId === id);
+        nextApplied.push({
+          id,
+          appliedAt,
+          journal: journalRelPath,
+          checksum: action && action.migrationChecksum ? action.migrationChecksum : null,
+        });
       }
     }
     writeInstallState(configDir, {
@@ -372,11 +547,13 @@ function rollbackAppliedMigrationResult({ configDir, journal, journalPath, rollb
 
 function runInstallerMigrations({
   configDir,
+  runtime = null,
+  scope = null,
   migrationsDir = DEFAULT_MIGRATIONS_DIR,
   migrations = discoverInstallerMigrations({ migrationsDir }),
   now = () => new Date().toISOString(),
 } = {}) {
-  const plan = planInstallerMigrations({ configDir, migrations, now });
+  const plan = planInstallerMigrations({ configDir, runtime, scope, migrations, now });
   if (plan.actions.length === 0) {
     return {
       appliedMigrationIds: [],

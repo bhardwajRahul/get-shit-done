@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const {
   applyInstallerMigrationPlan,
   discoverInstallerMigrations,
+  INSTALL_STATE_NAME,
   planInstallerMigrations,
   readInstallState,
   runInstallerMigrations,
@@ -45,6 +46,28 @@ function writeManifest(root, files) {
   );
 }
 
+function legacyCodexHook(configDir) {
+  return {
+    hooks: [
+      {
+        type: 'command',
+        command: `node "${path.join(configDir, 'hooks', 'gsd-check-update.js')}"`,
+      },
+    ],
+  };
+}
+
+function userHook(command) {
+  return {
+    hooks: [
+      {
+        type: 'command',
+        command,
+      },
+    ],
+  };
+}
+
 test('plans a pending migration against an unchanged managed file', () => {
   const configDir = createTempInstall();
   try {
@@ -73,7 +96,17 @@ test('plans a pending migration against an unchanged managed file', () => {
 
     assert.deepEqual(plan.pendingMigrationIds, ['2026-05-11-remove-old-hook']);
     assert.equal(plan.blocked.length, 0);
-    assert.deepEqual(plan.actions, [
+    assert.equal(plan.actions.length, 1);
+    assert.deepEqual(
+      {
+        migrationId: plan.actions[0].migrationId,
+        type: plan.actions[0].type,
+        relPath: plan.actions[0].relPath,
+        reason: plan.actions[0].reason,
+        classification: plan.actions[0].classification,
+        originalHash: plan.actions[0].originalHash,
+        currentHash: plan.actions[0].currentHash,
+      },
       {
         migrationId: '2026-05-11-remove-old-hook',
         type: 'remove-managed',
@@ -82,8 +115,9 @@ test('plans a pending migration against an unchanged managed file', () => {
         classification: 'managed-pristine',
         originalHash: sha256('managed hook\n'),
         currentHash: sha256('managed hook\n'),
-      },
-    ]);
+      }
+    );
+    assert.match(plan.actions[0].migrationChecksum, /^sha256:/);
   } finally {
     cleanup(configDir);
   }
@@ -203,6 +237,7 @@ test('applies an unblocked plan with a journal and install-state update', () => 
 
     const state = readInstallState(configDir);
     assert.deepEqual(state.appliedMigrations.map((entry) => entry.id), ['2026-05-11-remove-old-hook']);
+    assert.match(state.appliedMigrations[0].checksum, /^sha256:/);
   } finally {
     cleanup(configDir);
   }
@@ -369,6 +404,70 @@ test('reports rollback restore failures instead of swallowing them', () => {
   }
 });
 
+test('rejects executable preserve-user actions because preservation blocks non-interactive apply', () => {
+  const configDir = createTempInstall();
+  try {
+    writeManifest(configDir, {});
+
+    assert.throws(
+      () => applyInstallerMigrationPlan({
+        configDir,
+        plan: {
+          blocked: [],
+          actions: [
+            {
+              migrationId: '2026-05-11-preserve-user',
+              type: 'preserve-user',
+              relPath: 'hooks/custom-user-hook.js',
+              reason: 'unknown user hook',
+              classification: 'unknown',
+              originalHash: null,
+              currentHash: sha256('user hook\n'),
+            },
+          ],
+        },
+      }),
+      /unsupported migration action type: preserve-user/
+    );
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('keeps prior install state intact when a state write fails mid-write', () => {
+  const configDir = createTempInstall();
+  const originalWriteFileSync = fs.writeFileSync;
+  try {
+    writeInstallState(configDir, {
+      schemaVersion: 1,
+      appliedMigrations: [{ id: 'already-safe', appliedAt: '2026-05-11T00:00:00.000Z' }],
+    });
+
+    fs.writeFileSync = (filePath, content, ...rest) => {
+      if (path.basename(filePath).startsWith(`${INSTALL_STATE_NAME}.tmp-`)) {
+        throw new Error('simulated temp state write failure');
+      }
+      return originalWriteFileSync(filePath, content, ...rest);
+    };
+
+    assert.throws(
+      () => writeInstallState(configDir, {
+        schemaVersion: 1,
+        appliedMigrations: [{ id: 'new-migration', appliedAt: '2026-05-11T00:00:01.000Z' }],
+      }),
+      /simulated temp state write failure/
+    );
+  } finally {
+    fs.writeFileSync = originalWriteFileSync;
+  }
+
+  try {
+    assert.deepEqual(readInstallState(configDir).appliedMigrations.map((entry) => entry.id), ['already-safe']);
+  } finally {
+    cleanup(configDir);
+  }
+});
+
 test('skips migration records already present in install state', () => {
   const configDir = createTempInstall();
   try {
@@ -396,6 +495,83 @@ test('skips migration records already present in install state', () => {
         },
       ],
       now: () => '2026-05-11T00:00:03.000Z',
+    });
+
+    assert.deepEqual(plan.pendingMigrationIds, []);
+    assert.deepEqual(plan.actions, []);
+    assert.deepEqual(plan.blocked, []);
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('refuses to plan an already-applied migration whose checksum changed', () => {
+  const configDir = createTempInstall();
+  try {
+    writeManifest(configDir, {});
+    writeInstallState(configDir, {
+      schemaVersion: 1,
+      appliedMigrations: [
+        {
+          id: '2026-05-11-remove-old-hook',
+          checksum: 'sha256:old-definition',
+          appliedAt: '2026-05-11T00:00:00.000Z',
+          journal: 'gsd-migration-journal/prior.json',
+        },
+      ],
+    });
+
+    assert.throws(
+      () => planInstallerMigrations({
+        configDir,
+        migrations: [
+          {
+            id: '2026-05-11-remove-old-hook',
+            checksum: 'sha256:new-definition',
+            description: 'Remove retired hook',
+            plan: () => [],
+          },
+        ],
+      }),
+      /applied migration checksum changed/
+    );
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('ignores checksum drift for applied migrations outside the active runtime scope', () => {
+  const configDir = createTempInstall();
+  try {
+    writeManifest(configDir, {});
+    writeInstallState(configDir, {
+      schemaVersion: 1,
+      appliedMigrations: [
+        {
+          id: '2026-05-11-codex-only',
+          checksum: 'sha256:old-definition',
+          appliedAt: '2026-05-11T00:00:00.000Z',
+          journal: 'gsd-migration-journal/prior.json',
+        },
+      ],
+    });
+
+    const plan = planInstallerMigrations({
+      configDir,
+      runtime: 'claude',
+      scope: 'global',
+      migrations: [
+        {
+          id: '2026-05-11-codex-only',
+          checksum: 'sha256:new-definition',
+          runtimes: ['codex'],
+          scopes: ['global'],
+          description: 'Codex-only migration',
+          plan: () => {
+            throw new Error('out-of-scope migration planner must not run');
+          },
+        },
+      ],
     });
 
     assert.deepEqual(plan.pendingMigrationIds, []);
@@ -501,6 +677,7 @@ test('runs discovered installer migrations against manifest-managed legacy orpha
 
     const result = runInstallerMigrations({
       configDir,
+      scope: 'global',
       now: () => '2026-05-11T00:00:05.000Z',
     });
 
@@ -508,6 +685,69 @@ test('runs discovered installer migrations against manifest-managed legacy orpha
     assert.equal(fs.readFileSync(path.join(configDir, 'hooks/custom.js'), 'utf8'), 'custom hook\n');
     assert.deepEqual(result.appliedMigrationIds, ['2026-05-11-legacy-orphan-files']);
     assert.deepEqual(readInstallState(configDir).appliedMigrations.map((entry) => entry.id), ['2026-05-11-legacy-orphan-files']);
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('runs a Codex legacy hooks.json cleanup migration without removing user hooks', () => {
+  const configDir = createTempInstall();
+  try {
+    writeFile(
+      configDir,
+      'hooks.json',
+      JSON.stringify({
+        SessionStart: [
+          legacyCodexHook(configDir),
+          userHook('node "/Users/example/bin/user-hook.js"'),
+          userHook('node "/Users/example/bin/gsd-check-update.js"'),
+        ],
+      }, null, 2)
+    );
+    writeManifest(configDir, {});
+
+    const result = runInstallerMigrations({
+      configDir,
+      runtime: 'codex',
+      scope: 'global',
+      now: () => '2026-05-11T00:00:06.000Z',
+    });
+
+    const hooksJson = JSON.parse(fs.readFileSync(path.join(configDir, 'hooks.json'), 'utf8'));
+    const commands = hooksJson.SessionStart.flatMap((entry) => entry.hooks).map((hook) => hook.command);
+
+    assert.deepEqual(commands, [
+      'node "/Users/example/bin/user-hook.js"',
+      'node "/Users/example/bin/gsd-check-update.js"',
+    ]);
+    assert.ok(result.appliedMigrationIds.includes('2026-05-11-codex-legacy-hooks-json'));
+  } finally {
+    cleanup(configDir);
+  }
+});
+
+test('skips runtime-specific migration records for other runtimes', () => {
+  const configDir = createTempInstall();
+  try {
+    writeFile(
+      configDir,
+      'hooks.json',
+      JSON.stringify({
+        SessionStart: [legacyCodexHook(configDir)],
+      }, null, 2)
+    );
+    writeManifest(configDir, {});
+
+    const result = runInstallerMigrations({
+      configDir,
+      runtime: 'claude',
+      scope: 'global',
+      now: () => '2026-05-11T00:00:07.000Z',
+    });
+
+    const hooksJson = JSON.parse(fs.readFileSync(path.join(configDir, 'hooks.json'), 'utf8'));
+    assert.equal(hooksJson.SessionStart[0].hooks[0].command, `node "${path.join(configDir, 'hooks', 'gsd-check-update.js')}"`);
+    assert.equal(result.appliedMigrationIds.includes('2026-05-11-codex-legacy-hooks-json'), false);
   } finally {
     cleanup(configDir);
   }

@@ -195,11 +195,20 @@ tests for line-ending and ordering variations.
 Use for runtime config, hook registrations, feature flags, and generated
 agent registration blocks.
 
+The initial executor support is `rewrite-json`: a migration reads JSON through
+`readJson(relPath)`, returns the next parsed value in the action, and may set
+`deleteIfEmpty: true` when the remaining structure is empty. The executor owns
+the disk write, journal entry, rollback snapshot, and runtime/scope filtering.
+Use this for legacy JSON config cleanup such as Codex `hooks.json`, where GSD
+can prove ownership of individual generated hook commands but not the whole
+file.
+
 ### preserve-user
 
 Declare that a path is user-owned and must survive surrounding directory
-replacement. This action is informational in dry-run output and becomes a
-copy-through or restore operation during apply.
+replacement. This action is informational in dry-run output and blocks
+non-interactive apply until a later interactive baseline migration can ask for
+an explicit user choice.
 
 Use for profile, preferences, hand-authored instructions, and future workflow
 outputs.
@@ -278,6 +287,57 @@ Runtime config is mixed ownership. GSD may own marker blocks, generated agent
 sections, or hook entries, but it does not own the whole file unless the file
 was created as a GSD-only file. Config migrations should remove or rewrite
 only the owned portion.
+
+## Runtime Configuration Contract Registry
+
+Last upstream documentation check: 2026-05-11.
+
+This registry is the source of truth for migrations that touch host runtime
+configuration. Each row records:
+
+- **What:** the GSD invocation, agent, skill, rule, hook, or config surface
+- **Where:** the global and local roots the installer targets
+- **When:** install, upgrade, uninstall, and migration touch points
+- **Who:** the ownership boundary for surrounding user config
+- **Why:** the upstream loader contract or current GSD compatibility shim
+
+Migration authors must read the matching row before producing a
+`rewrite-config`, `move-managed`, or destructive cleanup action. If upstream
+docs change, update this registry, update `docs/ARCHITECTURE.md`, and add tests
+for the new shape before changing migration behavior.
+
+| Runtime | What GSD installs | Where GSD installs it | Config ownership boundary | Upstream contract snapshot |
+| --- | --- | --- | --- | --- |
+| Claude Code | Global skills in `skills/gsd-*/SKILL.md`; local slash commands in `commands/gsd/*.md`; agents in `agents/gsd-*.md`; hooks in `hooks/`; `settings.json` registrations | Global `CLAUDE_CONFIG_DIR` or `~/.claude`; local `./.claude` | GSD owns only generated skills, local commands, `gsd-*` agents, hook files, and GSD hook/statusLine entries in `settings.json` | [Slash commands](https://docs.anthropic.com/en/docs/claude-code/slash-commands), [settings](https://docs.anthropic.com/en/docs/claude-code/settings), [hooks](https://docs.anthropic.com/en/docs/claude-code/hooks), [subagents](https://docs.anthropic.com/en/docs/claude-code/sub-agents); docs not versioned, checked 2026-05-11 |
+| OpenCode | Flat markdown commands in `command/gsd-*.md`; agents in `agents/gsd-*.md`; config updates in `opencode.json` or `opencode.jsonc` | Global `OPENCODE_CONFIG_DIR`, `dirname(OPENCODE_CONFIG)`, `XDG_CONFIG_HOME/opencode`, or `~/.config/opencode`; local `./.opencode` | GSD owns generated command/agent files and GSD entries in structured config only | [Config](https://opencode.ai/docs/config/); docs published 2026-05, checked 2026-05-11 |
+| Kilo | OpenCode-style flat markdown commands in `command/gsd-*.md`; agents in `agents/gsd-*.md`; config updates in `kilo.json` or `kilo.jsonc` | Global `KILO_CONFIG_DIR`, `dirname(KILO_CONFIG)`, `XDG_CONFIG_HOME/kilo`, or `~/.config/kilo`; local `./.kilo` | GSD owns generated command/agent files and GSD entries in structured config only | [Custom subagents](https://docs.kilo.ai/docs/customize/custom-subagents); docs not versioned, checked 2026-05-11 |
+| Gemini CLI | TOML slash commands in `commands/gsd/*.toml`; agents in `agents/gsd-*.md`; `settings.json` feature flag, hooks, and statusline | Global `GEMINI_CONFIG_DIR` or `~/.gemini`; local `./.gemini` | GSD owns generated commands/agents/hooks and only GSD settings entries; local command copy may be skipped when global GSD commands already exist | [Custom commands](https://google-gemini.github.io/gemini-cli/docs/cli/custom-commands.html), [configuration](https://google-gemini.github.io/gemini-cli/docs/cli/configuration.html); docs checked 2026-05-11 |
+| Codex | Skills in `skills/gsd-*/SKILL.md`; agents as source markdown plus per-agent TOML in `agents/`; `[agents.gsd-*]` and hooks in `config.toml` | Global `CODEX_HOME` or `~/.codex`; local `./.codex` | GSD owns generated skills, generated agent TOML, `agents.gsd-*` config sections, `[features].codex_hooks` when added by GSD, and GSD hook entries | [Codex config schema](https://developers.openai.com/codex/config-schema.json), [Codex developer docs](https://developers.openai.com/codex/); docs not versioned, checked 2026-05-11; installer compatibility sentinel: Codex 0.124.0 agent table shape |
+| GitHub Copilot | Skills in `skills/gsd-*/SKILL.md`; agents as `.agent.md`; repository instructions in `copilot-instructions.md` | Global `COPILOT_CONFIG_DIR` or `~/.copilot`; local `./.github` | GSD owns generated skill/agent files and GSD-authored instruction files; no hook/statusline ownership | [Repository custom instructions](https://docs.github.com/en/copilot/how-tos/configure-custom-instructions/add-repository-instructions), [Copilot CLI custom instructions](https://docs.github.com/en/copilot/how-tos/copilot-cli/add-custom-instructions); GitHub Docs product docs, checked 2026-05-11 |
+| Antigravity | Skills in `skills/gsd-*/SKILL.md`; agents in `agents/`; Gemini-style `settings.json` hooks when installed by GSD | Global `ANTIGRAVITY_CONFIG_DIR` or `~/.gemini/antigravity`; local `./.agent` | GSD owns generated skills/agents/hooks and GSD settings entries only | Checked 2026-05-11 against available Antigravity install/config material; this row records GSD's Gemini-compatible settings contract as the compatibility baseline for installer migrations. |
+| Cursor | Skills in `skills/gsd-*/SKILL.md`; agents in `agents/`; rule references under `rules/` | Global `CURSOR_CONFIG_DIR` or `~/.cursor`; local `./.cursor` | GSD owns generated skills/agents and GSD rule files or references; no hook/statusline ownership | [Cursor rules](https://docs.cursor.com/context/rules); docs not versioned, checked 2026-05-11 |
+| Windsurf | Skills in `skills/gsd-*/SKILL.md`; agents in `agents/`; rule references under `rules/` | Global `WINDSURF_CONFIG_DIR` or `~/.codeium/windsurf`; local `./.windsurf` | GSD owns generated skills/agents and GSD rule files or references; no hook/statusline ownership | Windsurf public rule docs were source-limited in search results as of 2026-05-11; installer targets the common workspace rules convention `./.windsurf/rules` and must be rechecked before migrations rewrite rules |
+| Augment Code | Skills in `skills/gsd-*/SKILL.md`; agents in `agents/` | Global `AUGMENT_CONFIG_DIR` or `~/.augment`; local `./.augment` | GSD owns generated skills/agents only; no hook/statusline ownership | [Augment Agent Skills](https://docs.augmentcode.com/cli/skills), [Augment IDE skills](https://docs.augmentcode.com/using-augment/skills); IDE skills public beta in VS Code 0.789.0+, checked 2026-05-11 |
+| Trae | Skills in `skills/gsd-*/SKILL.md`; agents in `agents/`; rule references under `rules/` | Global `TRAE_CONFIG_DIR` or `~/.trae`; local `./.trae` | GSD owns generated skills/agents and GSD rule files or references; no hook/statusline ownership | Public Trae docs expose AI settings and `.rules` announcements, but no stable skills/config API was found as of 2026-05-11; migrations must treat this row as source-limited |
+| Qwen Code | Claude-compatible skills in `skills/gsd-*/SKILL.md`; agents in `agents/`; optional common hook/settings integration through GSD | Global `QWEN_CONFIG_DIR` or `~/.qwen`; local `./.qwen` | GSD owns generated skills/agents/hooks and GSD settings entries only | [Qwen commands and skills](https://qwenlm.github.io/qwen-code-docs/en/users/features/commands/); docs last updated 2026-05-06 |
+| Hermes Agent | Category skills under `skills/gsd/` with `DESCRIPTION.md` plus nested `gsd-*/SKILL.md`; agents in `agents/`; optional common hook/settings integration through GSD | Global `HERMES_HOME` or `~/.hermes`; local `./.hermes` | GSD owns generated `skills/gsd/` category content, generated agents, and GSD settings entries only | [Hermes configuration](https://hermes-agent.nousresearch.com/docs/user-guide/configuration), [Hermes skills](https://hermes-agent.nousresearch.com/docs/zh-Hans/user-guide/features/skills), [working with skills](https://hermes-agent.nousresearch.com/docs/guides/work-with-skills); docs checked 2026-05-11 |
+| CodeBuddy | Skills in `skills/gsd-*/SKILL.md`; agents in `agents/`; optional common hook/settings integration through GSD | Global `CODEBUDDY_CONFIG_DIR` or `~/.codebuddy`; local `./.codebuddy` | GSD owns generated skills/agents/hooks and GSD settings entries only | [CodeBuddy CLI skills](https://www.codebuddy.ai/docs/cli/skills), [CodeBuddy IDE skills](https://www.codebuddy.ai/docs/ide/Features/Skills); docs checked 2026-05-11 |
+| Cline | Rule-based integration via `.clinerules` for current installer output | Global `CLINE_CONFIG_DIR` or `~/.cline`; local project root `.clinerules` | GSD owns the generated `.clinerules` file only when it created or manifest-tracked it; no hooks/statusline ownership | [Cline rules](https://docs.cline.bot/customization/cline-rules); docs prefer `.clinerules/` directory and still detect legacy rule files, checked 2026-05-11 |
+
+### Registry Authoring Rules
+
+- Use structured parsers for config files whenever the runtime provides JSON,
+  JSONC, TOML, or YAML. Marker-block rewrites need line-ending and ordering
+  tests.
+- Do not claim ownership of a mixed config file. Own only generated entries,
+  generated files, and explicit marker blocks.
+- Preserve unknown user config, even when it sits inside a GSD-managed runtime
+  root.
+- Add or update the upstream snapshot date and version note when a runtime's
+  docs, CLI schema, or loader behavior changes.
+- Treat source-limited rows as high-risk. A migration that rewrites those
+  runtimes needs either a new primary source or an installer-level probe with
+  tests.
 
 ### Rollback
 
