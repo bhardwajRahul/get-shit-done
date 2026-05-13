@@ -2,7 +2,10 @@
 
 const path = require('path');
 const fs = require('fs');
-const { spawnSync, execFileSync } = require('child_process');
+// Use non-destructured access so test-time mock.method(childProcess, 'spawnSync')
+// can intercept calls from this seam — destructured imports capture references
+// at load time and become un-mockable.
+const childProcess = require('child_process');
 
 /**
  * Shell Command Projection Module
@@ -358,18 +361,30 @@ function formatSdkPathDiagnostic({ shimDir, platform, runDir }) {
 
 function _spawnResult(result, program) {
   if (result.error && result.error.code === 'ENOENT') {
-    return { exitCode: 127, stdout: '', stderr: `${program}: not found` };
+    return { exitCode: 127, stdout: '', stderr: `${program}: not found`, signal: null, error: result.error };
   }
   return {
     exitCode: result.status ?? 1,
     stdout: (result.stdout ?? '').toString().trim(),
     stderr: (result.stderr ?? '').toString().trim(),
+    signal: result.signal ?? null,
+    error: result.error ?? null,
   };
 }
 
 function execGit(args, opts = {}) {
-  const result = spawnSync('git', args, {
+  // Non-interactive defaults: a hung credential prompt or terminal-input
+  // probe must surface as a timeout, not block the tool forever. Callers
+  // can override via opts.env.
+  const env = {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GCM_INTERACTIVE: 'never',
+    ...(opts.env || {}),
+  };
+  const result = childProcess.spawnSync('git', args, {
     cwd: opts.cwd,
+    env,
     encoding: 'utf-8',
     stdio: 'pipe',
     timeout: opts.timeout ?? 10_000,
@@ -378,7 +393,7 @@ function execGit(args, opts = {}) {
 }
 
 function execNpm(args, opts = {}) {
-  const result = spawnSync('npm', args, {
+  const result = childProcess.spawnSync('npm', args, {
     cwd: opts.cwd,
     shell: process.platform === 'win32',
     encoding: 'utf-8',
@@ -389,8 +404,9 @@ function execNpm(args, opts = {}) {
 }
 
 function execTool(program, args, opts = {}) {
-  const result = spawnSync(program, args, {
+  const result = childProcess.spawnSync(program, args, {
     cwd: opts.cwd,
+    env: opts.env ? { ...process.env, ...opts.env } : undefined,
     encoding: 'utf-8',
     stdio: 'pipe',
     timeout: opts.timeout ?? 30_000,
@@ -402,7 +418,7 @@ function probeTty(opts = {}) {
   const platform = opts.platform ?? process.platform;
   if (platform === 'win32') return null;
   try {
-    const ttyPath = execFileSync('tty', [], {
+    const ttyPath = childProcess.execFileSync('tty', [], {
       encoding: 'utf-8',
       stdio: ['inherit', 'pipe', 'ignore'],
     }).trim();
