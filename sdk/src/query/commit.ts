@@ -177,20 +177,42 @@ export const commit: QueryHandler = async (args, projectDir, workstream) => {
   // causes `git diff --cached` to exit non-zero with "pathspec did not match".
   // To avoid that, get all staged files and filter by the requested paths in
   // TypeScript instead.
-  const stagedFiles: string[] = (() => {
+  const stagedFilesResult: { files: string[] } | { error: { reason: string; exitCode: number } } = (() => {
     if (hasRespectStaged) {
       const allStaged = execGit(projectDir, ['diff', '--cached', '--name-only']);
+      if (allStaged.exitCode !== 0) {
+        return {
+          error: {
+            reason: allStaged.stderr || allStaged.stdout || 'failed to inspect staged files',
+            exitCode: allStaged.exitCode,
+          },
+        };
+      }
       const allStagedFiles = allStaged.stdout ? allStaged.stdout.split('\n').filter(Boolean) : [];
-      // Build a Set of the requested paths for O(1) lookup.
-      const pathSet = new Set(pathsToCommit);
-      // For directory entries (e.g. '.planning/'), match by prefix.
-      return allStagedFiles.filter(f =>
-        pathSet.has(f) || pathsToCommit.some(p => p.endsWith('/') && f.startsWith(p)),
-      );
+      const normalizePathspec = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '');
+      const normalizedSpecs = pathsToCommit.map(normalizePathspec);
+      return {
+        files: allStagedFiles.filter(file => {
+          const normalizedFile = normalizePathspec(file);
+          return normalizedSpecs.some(spec => normalizedFile === spec || normalizedFile.startsWith(`${spec}/`));
+        }),
+      };
     }
     const diffResult = execGit(projectDir, ['diff', '--cached', '--name-only', '--', ...pathsToCommit]);
-    return diffResult.stdout ? diffResult.stdout.split('\n').filter(Boolean) : [];
+    if (diffResult.exitCode !== 0) {
+      return {
+        error: {
+          reason: diffResult.stderr || diffResult.stdout || 'failed to inspect staged files',
+          exitCode: diffResult.exitCode,
+        },
+      };
+    }
+    return { files: diffResult.stdout ? diffResult.stdout.split('\n').filter(Boolean) : [] };
   })();
+  if ('error' in stagedFilesResult) {
+    return { data: { committed: false, ...stagedFilesResult.error } };
+  }
+  const stagedFiles = stagedFilesResult.files;
   if (stagedFiles.length === 0) {
     return { data: { committed: false, reason: 'nothing staged' } };
   }

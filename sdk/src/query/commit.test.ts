@@ -436,6 +436,29 @@ describe('commit --respect-staged (#3522)', () => {
     expect(staged).toContain('out-of-scope.ts');
   });
 
+  it('treats directory pathspecs without trailing slash as directories under --respect-staged', async () => {
+    const { commit } = await import('./commit.js');
+
+    await writeFile(join(tmpDir, 'out-of-scope.ts'), '// out of scope\n');
+    execSync('git add .planning/config.json out-of-scope.ts', { cwd: tmpDir, stdio: 'pipe' });
+
+    const result = await commit(
+      ['feat: dir scope', '--files', '.planning', '--respect-staged'],
+      tmpDir,
+    );
+    expect((result.data as { committed: boolean }).committed).toBe(true);
+
+    const committedFiles = execSync('git show --name-only --format= HEAD', { cwd: tmpDir, encoding: 'utf-8' })
+      .trim()
+      .split('\n')
+      .filter(Boolean);
+    expect(committedFiles).toContain('.planning/config.json');
+    expect(committedFiles).not.toContain('out-of-scope.ts');
+
+    const staged = execSync('git diff --cached --name-only', { cwd: tmpDir, encoding: 'utf-8' }).trim();
+    expect(staged).toContain('out-of-scope.ts');
+  });
+
   it('without --respect-staged, --files re-stages the full file even when partially pre-staged (back-compat)', async () => {
     const { commit } = await import('./commit.js');
 
