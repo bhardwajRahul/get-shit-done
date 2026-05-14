@@ -450,6 +450,12 @@ function cmdConfigSet(cwd, keyPath, value, raw) {
     error(`Invalid workflow.human_verify_mode '${value}'. Valid values: ${VALID_HUMAN_VERIFY_MODES.join(', ')}`);
   }
 
+  // Context position enum validation (#2937)
+  const VALID_CONTEXT_POSITIONS = ['front', 'end'];
+  if (keyPath === 'statusline.context_position' && !VALID_CONTEXT_POSITIONS.includes(String(parsedValue))) {
+    error(`Invalid statusline.context_position '${value}'. Valid values: ${VALID_CONTEXT_POSITIONS.join(', ')}`);
+  }
+
   // Fallow scope + profile enum validation (#3424)
   const VALID_FALLOW_SCOPES = ['phase', 'repo'];
   if (keyPath === 'code_quality.fallow.scope' && !VALID_FALLOW_SCOPES.includes(String(parsedValue))) {
