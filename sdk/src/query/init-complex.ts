@@ -82,14 +82,18 @@ function gitWorktreeInfo(base: string): { inside: boolean; worktreeRoot: string 
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     }).trim();
     if (inside !== 'true') return { inside: false, worktreeRoot: null };
-    const root = execSync('git rev-parse --show-toplevel', {
-      cwd: base,
-      stdio: ['ignore', 'pipe', 'ignore'],
-      encoding: 'utf-8',
-      timeout: 5000,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-    }).trim();
-    return { inside: true, worktreeRoot: root || null };
+    try {
+      const root = execSync('git rev-parse --show-toplevel', {
+        cwd: base,
+        stdio: ['ignore', 'pipe', 'ignore'],
+        encoding: 'utf-8',
+        timeout: 5000,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      }).trim();
+      return { inside: true, worktreeRoot: root || null };
+    } catch {
+      return { inside: true, worktreeRoot: null };
+    }
   } catch {
     return { inside: false, worktreeRoot: null };
   }
