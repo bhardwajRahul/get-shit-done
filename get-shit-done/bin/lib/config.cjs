@@ -163,6 +163,7 @@ function buildNewProjectConfig(userChoices) {
     exa_search: hasExaSearch,
     git: {
       branching_strategy: CONFIG_DEFAULTS.branching_strategy,
+      create_tag: true,
       phase_branch_template: CONFIG_DEFAULTS.phase_branch_template,
       milestone_branch_template: CONFIG_DEFAULTS.milestone_branch_template,
       quick_branch_template: CONFIG_DEFAULTS.quick_branch_template,
