@@ -73,10 +73,14 @@ describe('bug-3509: frontmatter get/set/merge/validate survive spaces in file pa
   });
 
   test('frontmatter set works when file path contains spaces', () => {
-    const result = runGsdTools(['frontmatter', 'set', tmpFile, '--field', 'phase', '--value', '02']);
-    assert.ok(result.success, `Command failed: ${result.error}`);
-    const content = fs.readFileSync(tmpFile, 'utf-8');
-    assert.ok(content.includes('phase: 02'), 'field should be updated in file');
+    const setResult = runGsdTools(['frontmatter', 'set', tmpFile, '--field', 'phase', '--value', '02']);
+    assert.ok(setResult.success, `set failed: ${setResult.error}`);
+    // Verify behaviorally — round-trip via frontmatter get rather than reading the file
+    // and grepping (which trips lint-no-source-grep even on tmp files).
+    const getResult = runGsdTools(['frontmatter', 'get', tmpFile]);
+    assert.ok(getResult.success, `get failed: ${getResult.error}`);
+    const parsed = JSON.parse(getResult.output);
+    assert.strictEqual(parsed.phase, '02', 'field should be updated to "02"');
   });
 
   test('frontmatter validate works when file path contains spaces', () => {
