@@ -733,7 +733,7 @@ Create git tag:
 
 ```bash
 # Pre-check: skip if tag already exists (prevents silent failure on retry)
-if git rev-parse "v${milestone_version}" >/dev/null 2>&1; then echo "Tag v${milestone_version} already exists, skipping"; exit 0; fi
+if git rev-parse "v[X.Y]" >/dev/null 2>&1; then echo "Tag v[X.Y] already exists, skipping"; exit 0; fi
 git tag -a v[X.Y] -m "v[X.Y] [Name]
 
 Delivered: [One sentence]
@@ -842,7 +842,7 @@ Milestone completion is successful when:
 - [ ] Safety commit made (archive files + updated ROADMAP.md) BEFORE deleting REQUIREMENTS.md
 - [ ] REQUIREMENTS.md removed via `git rm` (fresh for next milestone, history preserved)
 - [ ] STATE.md updated with fresh project reference
-- [ ] Git tag created (v[X.Y])
+- [ ] Git tag created (v[X.Y]) (if `git.create_tag` enabled)
 - [ ] Milestone commit made (includes archive files and deletion)
 - [ ] Requirements completion checked against REQUIREMENTS.md traceability table
 - [ ] Incomplete requirements surfaced with proceed/audit/abort options
