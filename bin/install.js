@@ -843,32 +843,14 @@ function rewriteLegacyCodexHookBlock(content, absoluteRunner, opts) {
   return { content: updated, changed };
 }
 
-/**
- * Ensure Codex hooks.json contains exactly one managed SessionStart
- * gsd-check-update hook entry, while preserving user-owned entries.
- *
- * Codex accepts hook config from hooks.json and config.toml. To avoid the
- * startup warning for mixed representations in the same layer, GSD now stores
- * the managed SessionStart hook in hooks.json and keeps config.toml for
- * feature flags / agent metadata only.
- *
- * Supports both known hooks.json shapes:
- *   1) { "SessionStart": [...] }
- *   2) { "hooks": { "SessionStart": [...] } }
- *
- * @param {string} targetDir
- * @param {{ absoluteRunner: string|null, platform?: NodeJS.Platform }} opts
- * @returns {{ changed: boolean, wrote: boolean, path: string }}
- */
-function ensureCodexHooksJsonSessionStart(targetDir, opts = {}) {
+function reconcileCodexHooksJsonSessionStart(targetDir, opts = {}) {
   const hooksJsonPath = path.join(targetDir, 'hooks.json');
-  const platform = opts.platform || process.platform;
-  const absoluteRunner = opts.absoluteRunner || null;
-  if (!absoluteRunner) return { changed: false, wrote: false, path: hooksJsonPath };
-
+  const managedCommand = typeof opts.managedCommand === 'string' ? opts.managedCommand : null;
   let parsed = {};
+  let currentContent = null;
   if (fs.existsSync(hooksJsonPath)) {
     const raw = fs.readFileSync(hooksJsonPath, 'utf8');
+    currentContent = raw;
     if (raw.trim()) {
       try {
         parsed = JSON.parse(raw);
@@ -893,11 +875,11 @@ function ensureCodexHooksJsonSessionStart(targetDir, opts = {}) {
       sanitizedSessionStart.push(entry);
       continue;
     }
-    const keptHooks = originalHooks.filter((hook) => {
-      const cmd = hook && typeof hook === 'object' ? hook.command : null;
-      const managed = isManagedHookCommand(cmd, {
-        surface: 'codex-hooks-json',
-        includeLegacyAliases: true,
+      const keptHooks = originalHooks.filter((hook) => {
+        const cmd = hook && typeof hook === 'object' ? hook.command : null;
+        const managed = isManagedHookCommand(cmd, {
+          surface: 'codex-hooks-json',
+          includeLegacyAliases: true,
         configDir: targetDir,
       });
       if (managed) removedLegacy = true;
@@ -908,6 +890,56 @@ function ensureCodexHooksJsonSessionStart(targetDir, opts = {}) {
     sanitizedSessionStart.push(nextEntry);
   }
 
+  if (managedCommand) {
+    sanitizedSessionStart.push({
+      hooks: [
+        {
+          type: 'command',
+          command: managedCommand,
+        },
+      ],
+    });
+  }
+
+  if (sanitizedSessionStart.length > 0) {
+    hookTable.SessionStart = sanitizedSessionStart;
+  } else {
+    delete hookTable.SessionStart;
+  }
+  if (usesNestedHooksObject) parsed.hooks = hookTable;
+
+  const nextContent = `${JSON.stringify(parsed, null, 2)}\n`;
+  const changed = currentContent !== nextContent;
+  const shouldWrite = changed && (currentContent !== null || Object.keys(parsed).length > 0);
+  if (shouldWrite) {
+    atomicWriteFileSync(hooksJsonPath, nextContent, 'utf8');
+  }
+
+  return { changed: changed || removedLegacy, wrote: shouldWrite, path: hooksJsonPath };
+}
+
+/**
+ * Ensure Codex hooks.json contains exactly one managed SessionStart
+ * gsd-check-update hook entry, while preserving user-owned entries.
+ *
+ * Codex accepts hook config from hooks.json and config.toml. To avoid the
+ * startup warning for mixed representations in the same layer, GSD now stores
+ * the managed SessionStart hook in hooks.json and keeps config.toml for
+ * feature flags / agent metadata only.
+ *
+ * Supports both known hooks.json shapes:
+ *   1) { "SessionStart": [...] }
+ *   2) { "hooks": { "SessionStart": [...] } }
+ *
+ * @param {string} targetDir
+ * @param {{ absoluteRunner: string|null, platform?: NodeJS.Platform }} opts
+ * @returns {{ changed: boolean, wrote: boolean, path: string }}
+ */
+function ensureCodexHooksJsonSessionStart(targetDir, opts = {}) {
+  const platform = opts.platform || process.platform;
+  const absoluteRunner = opts.absoluteRunner || null;
+  const hooksJsonPath = path.join(targetDir, 'hooks.json');
+  if (!absoluteRunner) return { changed: false, wrote: false, path: hooksJsonPath };
   const managedCommand = projectManagedHookCommand({
     absoluteRunner,
     scriptPath: path.resolve(targetDir, 'hooks', 'gsd-check-update.js'),
@@ -915,27 +947,11 @@ function ensureCodexHooksJsonSessionStart(targetDir, opts = {}) {
     platform,
   });
   if (!managedCommand) return { changed: false, wrote: false, path: hooksJsonPath };
+  return reconcileCodexHooksJsonSessionStart(targetDir, { managedCommand });
+}
 
-  sanitizedSessionStart.push({
-    hooks: [
-      {
-        type: 'command',
-        command: managedCommand,
-      },
-    ],
-  });
-
-  hookTable.SessionStart = sanitizedSessionStart;
-  if (usesNestedHooksObject) parsed.hooks = hookTable;
-
-  const nextContent = `${JSON.stringify(parsed, null, 2)}\n`;
-  const currentContent = fs.existsSync(hooksJsonPath) ? fs.readFileSync(hooksJsonPath, 'utf8') : null;
-  const changed = currentContent !== nextContent;
-  if (changed) {
-    atomicWriteFileSync(hooksJsonPath, nextContent, 'utf8');
-  }
-
-  return { changed: changed || removedLegacy, wrote: changed, path: hooksJsonPath };
+function removeCodexHooksJsonSessionStart(targetDir) {
+  return reconcileCodexHooksJsonSessionStart(targetDir, { managedCommand: null });
 }
 
 /**
@@ -6529,6 +6545,12 @@ function uninstall(isGlobal, runtime = 'claude') {
           removedCount++;
           console.log(`  ${green}✓${reset} Cleaned GSD sections from config.toml`);
         }
+      }
+
+      const hooksJsonCleanup = removeCodexHooksJsonSessionStart(targetDir);
+      if (hooksJsonCleanup.changed) {
+        removedCount++;
+        console.log(`  ${green}✓${reset} Removed managed Codex SessionStart hook from hooks.json`);
       }
     }
   } else if (isCopilot) {

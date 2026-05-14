@@ -9,7 +9,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 
-const { install, parseTomlToObject } = require('../bin/install.js');
+const { install, uninstall, parseTomlToObject } = require('../bin/install.js');
 const { createTempDir, cleanup } = require('./helpers.cjs');
 
 const HOOKS_DIST = path.join(__dirname, '..', 'hooks', 'dist');
@@ -118,6 +118,33 @@ describe('#3427 + #3433 — Codex installer avoids duplicate skills and mixed ho
     const gsdCommands = sessionStartCommands.filter((cmd) => cmd.includes('gsd-check-update.js'));
 
     assert.equal(gsdCommands.length, 1);
+    assert.equal(sessionStartCommands.includes('node "/Users/example/bin/user-hook.js"'), true);
+  });
+
+  test('uninstall removes managed SessionStart hook from hooks.json but preserves user hooks', () => {
+    const hooksDir = path.join(codexHome, 'hooks');
+    fs.mkdirSync(hooksDir, { recursive: true });
+    fs.writeFileSync(path.join(hooksDir, 'gsd-check-update.js'), '// managed hook\n');
+    const managedHookPath = path.join(codexHome, 'hooks', 'gsd-check-update.js').replace(/\\/g, '/');
+
+    fs.writeFileSync(path.join(codexHome, 'hooks.json'), JSON.stringify({
+      SessionStart: [
+        {
+          hooks: [
+            { type: 'command', command: `node "${managedHookPath}"` },
+            { type: 'command', command: 'node "/Users/example/bin/user-hook.js"' },
+          ],
+        },
+      ],
+    }, null, 2));
+
+    withCodexHome(codexHome, () => uninstall(true, 'codex'));
+
+    const hooksJson = JSON.parse(fs.readFileSync(path.join(codexHome, 'hooks.json'), 'utf8'));
+    const sessionStartCommands = extractSessionStartCommandsFromHooksJson(hooksJson);
+    const gsdCommands = sessionStartCommands.filter((cmd) => cmd.includes('gsd-check-update.js'));
+
+    assert.equal(gsdCommands.length, 0);
     assert.equal(sessionStartCommands.includes('node "/Users/example/bin/user-hook.js"'), true);
   });
 });
