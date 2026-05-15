@@ -297,6 +297,7 @@
       "planning-workspace.cjs",
       "profile-output.cjs",
       "profile-pipeline.cjs",
+      "project-root.generated.cjs",
       "review-reviewer-selection.cjs",
       "roadmap-command-router.cjs",
       "roadmap.cjs",

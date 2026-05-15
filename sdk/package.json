@@ -42,6 +42,8 @@
     "check:configuration-fresh": "npm run build && node scripts/check-configuration-fresh.mjs",
     "gen:workstream-inventory-builder": "npm run build && node scripts/gen-workstream-inventory-builder.mjs",
     "check:workstream-inventory-builder-fresh": "npm run build && node scripts/check-workstream-inventory-builder-fresh.mjs",
+    "gen:project-root": "npm run build && node scripts/gen-project-root.mjs",
+    "check:project-root-fresh": "npm run build && node scripts/check-project-root-fresh.mjs",
     "prepublishOnly": "rm -rf dist && tsc && chmod +x dist/cli.js",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",

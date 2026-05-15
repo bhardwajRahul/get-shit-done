@@ -61,6 +61,9 @@ Module owning `.planning` path resolution, active workstream pointer policy (`se
 ### Workstream Inventory Module
 Shared CJS/SDK Module owning workstream directory discovery, per-workstream state projection, phase/plan/summary counting, roadmap-declared phase count, active marker projection, and active-workstream collision inputs. Command handlers render list/status/progress outputs from this inventory instead of rescanning `.planning/workstreams/*` directly. Source of truth for the pure projection is `sdk/src/workstream-inventory/builder.ts` (a Builder Module emitted to `get-shit-done/bin/lib/workstream-inventory-builder.generated.cjs` via the generator pattern); per-side Reader Adapters (`bin/lib/workstream-inventory.cjs` sync, `sdk/src/query/workstream-inventory.ts` async-ready) collect filesystem inputs and delegate projection to the Builder.
 
+### Project-Root Resolution Module
+Shared CJS/SDK Module owning project-root resolution from any starting directory. Walks the ancestor chain (bounded by `FIND_PROJECT_ROOT_MAX_DEPTH = 10`) applying four heuristics in order: (0) own `.planning/` guard (#1362), (1) parent `.planning/config.json` `sub_repos` traversal, (2) legacy `multiRepo: true` boolean + ancestor `.git`, (3) `.git` heuristic with parent `.planning/`. Returns `startDir` when no ancestor qualifies. Sync `node:fs` I/O. Source of truth: `sdk/src/project-root/index.ts`; CJS callers consume the generator-emitted `get-shit-done/bin/lib/project-root.generated.cjs` via thin re-exports at `get-shit-done/bin/lib/core.cjs` and `sdk/src/query/helpers.ts`.
+
 ### Planning Path Projection Module
 SDK query Module owning projection from project/workstream context to concrete `.planning` paths. Policy precedence is `explicit workstream > env workstream > env project > root`. Invalid workspace context is a validation error at this seam rather than a silent fallback.
 

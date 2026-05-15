@@ -360,7 +360,7 @@ The `gsd-planner` agent is decomposed into a core agent plus reference modules t
 
 ---
 
-## CLI Modules (62 shipped)
+## CLI Modules (63 shipped)
 
 Full listing: `get-shit-done/bin/lib/*.cjs`.
 
@@ -403,6 +403,7 @@ Full listing: `get-shit-done/bin/lib/*.cjs`.
 | `phases-command-router.cjs` | Thin CJS subcommand router adapter for `gsd-tools phases` |
 | `plan-scan.cjs` | Canonical phase-plan scanner — shared helper for detecting plan and summary files in flat and nested layouts (k014); consumed by state, roadmap, init, and workstream inventory paths |
 | `planning-workspace.cjs` | Planning path/workstream seam (`planningDir`, `planningPaths`, active-workstream routing, `.planning/.lock` orchestration) |
+| `project-root.generated.cjs` | GENERATED — CJS artifact emitted from `sdk/src/project-root/index.ts` via `sdk/scripts/gen-project-root.mjs`; resolves a project root from a starting directory using four heuristics (own `.planning/` guard, `sub_repos` config, `multiRepo` flag, `.git` heuristic); do not edit directly |
 | `profile-output.cjs` | Profile rendering, USER-PROFILE.md and dev-preferences.md generation |
 | `profile-pipeline.cjs` | User behavioral profiling data pipeline, session file scanning |
 | `review-reviewer-selection.cjs` | Reviewer selection/normalization helpers for `/gsd-review` default reviewer policy and precedence |

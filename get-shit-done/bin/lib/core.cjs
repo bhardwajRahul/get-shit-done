@@ -24,6 +24,7 @@ const {
   getActiveWorkstream,
   setActiveWorkstream,
 } = require('./planning-workspace.cjs');
+const { findProjectRoot } = require('./project-root.generated.cjs');
 
 // ─── Configuration Module (generated CJS mirror) ────────────────────────────
 // Cycle 4: import canonical defaults + normalization primitives from the
@@ -66,89 +67,7 @@ function detectSubRepos(cwd) {
   return results.sort();
 }
 
-/**
- * Walk up from `startDir` to find the project root that owns `.planning/`.
- *
- * In multi-repo workspaces, Claude may open inside a sub-repo (e.g. `backend/`)
- * instead of the project root. This function prevents `.planning/` from being
- * created inside the sub-repo by locating the nearest ancestor that already has
- * a `.planning/` directory.
- *
- * Detection strategy (checked in order for each ancestor):
- * 1. Parent has `.planning/config.json` with `sub_repos` listing this directory
- * 2. Parent has `.planning/config.json` with `multiRepo: true` (legacy format)
- * 3. Parent has `.planning/` and current dir has its own `.git` (heuristic)
- *
- * Returns `startDir` unchanged when no ancestor `.planning/` is found (first-run
- * or single-repo projects).
- */
-function findProjectRoot(startDir) {
-  const resolved = path.resolve(startDir);
-  const root = path.parse(resolved).root;
-  const homedir = require('os').homedir();
-
-  // If startDir already contains .planning/, it IS the project root.
-  // Do not walk up to a parent workspace that also has .planning/ (#1362).
-  const ownPlanning = path.join(resolved, '.planning');
-  if (fs.existsSync(ownPlanning) && fs.statSync(ownPlanning).isDirectory()) {
-    return startDir;
-  }
-
-  // Check if startDir or any of its ancestors (up to AND including the
-  // candidate project root) contains a .git directory. This handles both
-  // `backend/` (direct sub-repo) and `backend/src/modules/` (nested inside),
-  // as well as the common case where .git lives at the same level as .planning/.
-  function isInsideGitRepo(candidateParent) {
-    let d = resolved;
-    while (d !== root) {
-      if (fs.existsSync(path.join(d, '.git'))) return true;
-      if (d === candidateParent) break;
-      d = path.dirname(d);
-    }
-    return false;
-  }
-
-  let dir = resolved;
-  while (dir !== root) {
-    const parent = path.dirname(dir);
-    if (parent === dir) break; // filesystem root
-    if (parent === homedir) break; // never go above home
-
-    const parentPlanning = path.join(parent, '.planning');
-    if (fs.existsSync(parentPlanning) && fs.statSync(parentPlanning).isDirectory()) {
-      const configPath = path.join(parentPlanning, 'config.json');
-      try {
-        const raw = platformReadSync(configPath);
-        if (raw === null) throw new Error('missing');
-        const config = JSON.parse(raw);
-        const subRepos = config.sub_repos || config.planning?.sub_repos || [];
-
-        // Check explicit sub_repos list
-        if (Array.isArray(subRepos) && subRepos.length > 0) {
-          const relPath = path.relative(parent, resolved);
-          const topSegment = relPath.split(path.sep)[0];
-          if (subRepos.includes(topSegment)) {
-            return parent;
-          }
-        }
-
-        // Check legacy multiRepo flag
-        if (config.multiRepo === true && isInsideGitRepo(parent)) {
-          return parent;
-        }
-      } catch {
-        // config.json missing or malformed — fall back to .git heuristic
-      }
-
-      // Heuristic: parent has .planning/ and we're inside a git repo
-      if (isInsideGitRepo(parent)) {
-        return parent;
-      }
-    }
-    dir = parent;
-  }
-  return startDir;
-}
+// findProjectRoot is now re-exported from the generated CJS module above.
 
 // ─── Output helpers ───────────────────────────────────────────────────────────
 
