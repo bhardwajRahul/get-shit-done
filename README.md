@@ -222,6 +222,8 @@ For the full configuration reference — all settings, git branching strategies,
 
 **Commands not showing up?** Restart your runtime after install. GSD installs to `~/.claude/skills/gsd-*/` (Claude Code), `~/.codex/skills/gsd-*/` (Codex), or the equivalent for your runtime.
 
+**Codex users — minimum supported CLI version is `0.130.0`.** Codex CLI 0.130.0 ([release notes](https://github.com/openai/codex/releases/tag/rust-v0.130.0)) removed extra-skill-roots discovery via [openai/codex#21485](https://github.com/openai/codex/pull/21485); from that version onward Codex only discovers skills from `~/.codex/skills/<name>/SKILL.md`. GSD installs there directly. Earlier Codex CLI versions may show duplicate `gsd-*` entries (one from extra-roots discovery, one from `~/.codex/skills/`); restart Codex after install and either upgrade or accept the duplicate listing.
+
 **Something broken?** Re-run the installer — it's idempotent:
 ```bash
 npx get-shit-done-cc@latest
