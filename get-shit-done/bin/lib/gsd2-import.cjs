@@ -472,7 +472,9 @@ function cmdFromGsd2(args, cwd, raw) {
 
   const gsd2Data = parseGsd2(gsdDir);
   const artifacts = buildPlanningArtifacts(gsd2Data);
-  const preview = buildPreview(gsd2Data, artifacts, cwd);
+  // Use projectDir (resolved from --path) — not the process cwd — so the
+  // preview command targets the project actually being imported (#3584).
+  const preview = buildPreview(gsd2Data, artifacts, projectDir);
 
   if (dryRun) {
     return output({ success: true, dryRun: true, preview }, raw);

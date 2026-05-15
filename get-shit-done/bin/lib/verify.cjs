@@ -1358,7 +1358,9 @@ function cmdVerifyCodebaseDrift(cwd, raw) {
       structureMd,
       threshold,
       action,
-      projectDir: cwd,
+      // #3584: keep drift.cjs a pure library — resolve the runtime here and
+      // pass the literal name in so drift never touches env/config itself.
+      runtime: resolveRuntime(cwd),
     });
 
     emit({

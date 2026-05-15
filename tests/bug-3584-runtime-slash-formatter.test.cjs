@@ -125,14 +125,23 @@ describe('formatGsdSlash — runtime-aware slash command formatter', () => {
       assert.strictEqual(formatGsdSlash('', 'claude'), '');
     });
 
-    test('whitespace-only string is treated as empty after prefix strip', () => {
-      // Whitespace is preserved as-is in the output rather than mangled,
-      // so callers can detect "no real command" instead of receiving "/gsd- ".
-      const result = formatGsdSlash('   ', 'claude');
-      assert.ok(
-        result === '   ' || result === '/gsd-   ',
-        `whitespace input should round-trip or be predictably wrapped, got ${JSON.stringify(result)}`,
-      );
+    test('whitespace-only string returns empty string (no spurious /gsd- emission)', () => {
+      assert.strictEqual(formatGsdSlash('   ', 'claude'), '');
+      assert.strictEqual(formatGsdSlash('\t\n', 'codex'), '');
+    });
+
+    test('degenerate prefix-only input returns empty (does NOT re-emit colon form)', () => {
+      // Regression guard for the CodeRabbit finding on the original PR:
+      // a previous fallback returned `commandName` unchanged when the bare
+      // tail was empty, which re-introduced the deprecated `/gsd:` shape for
+      // inputs like `/gsd:`, `gsd:`, or `gsd-`. The formatter must never
+      // emit the colon form — return empty so callers detect "no command"
+      // instead of receiving an unroutable string.
+      assert.strictEqual(formatGsdSlash('/gsd:', 'claude'), '');
+      assert.strictEqual(formatGsdSlash('gsd:', 'claude'), '');
+      assert.strictEqual(formatGsdSlash('gsd-', 'claude'), '');
+      assert.strictEqual(formatGsdSlash('/gsd-', 'codex'), '');
+      assert.strictEqual(formatGsdSlash('$gsd-', 'codex'), '');
     });
 
     test('commands with arguments preserve the argument tail', () => {

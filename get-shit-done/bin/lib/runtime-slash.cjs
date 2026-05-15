@@ -28,7 +28,11 @@ function formatGsdSlash(commandName, runtime) {
   const stripped = commandName.replace(/^[/$]?gsd[-:]/i, '');
   // If the regex matched nothing (no prefix), the input is already a bare name.
   const bare = stripped === commandName ? commandName : stripped;
-  if (bare === '') return commandName;
+  // Defensive: a degenerate input like `/gsd:`, `gsd-`, or whitespace-only
+  // normalizes to empty. Returning the original colon-form would re-emit the
+  // deprecated shape that this module exists to suppress (#3584). Return an
+  // empty string so callers see "no command" rather than the broken input.
+  if (bare === '' || bare.trim() === '') return '';
 
   // Split on the first whitespace so only the command token is rewritten —
   // anything after the first space is caller-supplied arguments (phase
