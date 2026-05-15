@@ -6,7 +6,7 @@
  * (or from test fixtures). This module performs only the stateless transformation.
  */
 
-import { join, relative } from 'node:path';
+import { relative } from 'node:path';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
