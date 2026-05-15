@@ -10,13 +10,12 @@
  * Uses `synckit` (Atomics.wait + SharedArrayBuffer + worker_threads) to run
  * the async `QueryRuntimeBridge.execute()` in a worker thread and block the
  * calling thread until the result is available. The worker is spawned lazily
- * on first call and reused for all subsequent calls (steady-state overhead is
- * ~1–5 ms per call, depending on handler complexity).
+ * on first call and reused for all subsequent calls.
  *
  * ## Worker overhead
  *
- * - First call (worker startup + registry initialisation): ~150–400 ms.
- * - Subsequent calls (steady state): ~1–10 ms per call.
+ * - First call (worker startup + native bridge construction): ~80 ms.
+ * - Subsequent calls (steady state): ~0.1 ms per call (excluding handler work).
  *
  * ## CRITICAL: Do NOT call from an async context
  *

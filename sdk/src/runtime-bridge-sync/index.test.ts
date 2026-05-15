@@ -80,7 +80,7 @@ describe('executeForCjs - sync primitive', () => {
     expect(result.exitCode).not.toBe(0);
   });
 
-  it('native_failure: non-TypeError thrown by handler surfaces as native_failure', () => {
+  it('native_failure: handler execution failure is classified as native_failure', () => {
     // generate-slug with no args throws a GSDError (validation) — that maps to validation_error.
     // We need a command that throws a plain Error. The 'current-timestamp' command with
     // an invalid format that causes a runtime failure should work. Instead, let's directly
@@ -99,44 +99,13 @@ describe('executeForCjs - sync primitive', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('Expected ok:false');
-    // native_failure or validation_error are both acceptable when a handler throws
-    expect(['native_failure', 'validation_error', 'internal_error']).toContain(result.errorKind);
+    expect(result.errorKind).toBe('native_failure');
     expect(result.exitCode).not.toBe(0);
   });
 
-  it('internal_error: TypeError thrown surfaces as internal_error', () => {
-    // Pass a deeply invalid argument that would cause a TypeError inside the handler.
-    // 'config-get' with an invalid key path may cause a TypeError in property access.
-    // We specifically pass null-looking args by sending an object-named arg.
-    //
-    // Actually, we cannot easily force a TypeError from outside without a dedicated fixture.
-    // Instead, we verify that at least the shape is correct — if it does error, it has errorKind.
-    // This test documents the gap: we cannot reliably elicit internal_error without a custom handler.
-    //
-    // We test the shape by using a command that will fail and checking the discriminant union is correct.
-    const result = executeForCjs({
-      registryCommand: 'generate-slug',
-      registryArgs: [],  // Empty args — no slug text provided
-      legacyCommand: 'generate-slug',
-      legacyArgs: [],
-      mode: 'json',
-      projectDir: '/tmp',
-    });
+  it.todo('internal_error: requires fixture command that throws TypeError');
 
-    // generate-slug with no args returns { slug: '' } (empty slug) — it's a success case actually.
-    // This confirms the handler is lenient. Document: internal_error cannot be reliably elicited
-    // without injecting a handler that throws TypeError. See report for coverage gap.
-    if (!result.ok) {
-      expect(['native_failure', 'validation_error', 'internal_error']).toContain(result.errorKind);
-    } else {
-      expect(result.exitCode).toBe(0);
-    }
-  });
-
-  it('validation_error: strictSdk=true with unregistered command returns failure', () => {
-    // With strictSdk mode, if the command is not in the registry, the bridge throws before execution.
-    // Since we cannot easily pass strictSdk through the current executeForCjs signature,
-    // this test documents the gap. We instead test validation via an empty registryCommand.
+  it('unknown_command: unregistered command is classified as unknown_command', () => {
     const result = executeForCjs({
       registryCommand: '__nonexistent_xyz__',
       registryArgs: [],
@@ -148,10 +117,7 @@ describe('executeForCjs - sync primitive', () => {
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('Expected ok:false');
-    // The bridge uses strictSdk=false by default, so unknown commands go through transport
-    // and the subprocess fallback is disabled (allowFallbackToSubprocess=false), which
-    // causes a native_failure. Or it may be unknown_command from the registry.
-    expect(['unknown_command', 'native_failure', 'validation_error']).toContain(result.errorKind);
+    expect(result.errorKind).toBe('unknown_command');
   });
 
   it('idempotency: calling twice with identical input returns identical output', () => {
