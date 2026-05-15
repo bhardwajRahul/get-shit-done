@@ -19,8 +19,8 @@ function toPosixPath(p) {
 }
 
 function isCompletedInventory(status) {
-    const s = String(status ?? '').toLowerCase();
-    return s.includes('milestone complete') || s.includes('archived');
+    const s = String(status ?? '').trim().toLowerCase();
+    return /\bmilestone\s+complete\b/.test(s) || /\barchived\b/.test(s);
 }
 
 function buildWorkstreamInventory(inputs) {

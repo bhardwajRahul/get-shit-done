@@ -91,7 +91,7 @@ Verifier, TDD Mode, Code Review, Code Review Depth _(conditional — only when c
 Commit Docs, Skip Discuss, Worktrees
 
 ### Features
-Intel, Graphify
+Intel, Graphify, Graph auto-update _(conditional — only when graphify=on)_
 
 ### Model & Pipeline
 Model Profile, Auto-Advance, Branching
@@ -100,6 +100,8 @@ Model Profile, Auto-Advance, Branching
 Context Warnings, Research Qs
 
 **Conditional visibility — code_review_depth:** This question is shown only when the user's chosen `code_review` value (after they answer that question, or the pre-selected value if unchanged) is on. If `code_review` is off, omit the `code_review_depth` question from the AskUserQuestion block and preserve the existing `workflow.code_review_depth` value in config (do not overwrite). Implementation: ask the Model + Planning + Execution-up-to-Code-Review questions first; if `code_review=on`, include `code_review_depth` in the same batch; otherwise skip it. Conceptually this is a one-branch split on the `code_review` answer.
+
+**Conditional visibility — graphify.auto_update:** This question is shown only when the user's chosen `graphify.enabled` value is on. If `graphify.enabled` is off, omit the `graphify.auto_update` question and preserve the existing `graphify.auto_update` value in config (do not overwrite). Implementation: ask Graphify first; only ask Graph auto-update when Graphify is enabled.
 
 ```
 AskUserQuestion([
@@ -437,7 +439,8 @@ Write `~/.gsd/defaults.json` with:
     "enabled": <current>
   },
   "graphify": {
-    "enabled": <current>
+    "enabled": <current>,
+    "auto_update": <current>
   }
 }
 ```

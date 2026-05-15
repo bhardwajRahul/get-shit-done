@@ -86,11 +86,11 @@ function toPosixPath(p: string): string {
 
 /**
  * Pure classifier: returns true if the given status string indicates a
- * completed or archived workstream (case-insensitive substring match).
+ * completed or archived workstream (case-insensitive, boundary-aware match).
  */
 export function isCompletedInventory(status: string): boolean {
-  const s = String(status ?? '').toLowerCase();
-  return s.includes('milestone complete') || s.includes('archived');
+  const s = String(status ?? '').trim().toLowerCase();
+  return /\bmilestone\s+complete\b/.test(s) || /\barchived\b/.test(s);
 }
 
 /**
