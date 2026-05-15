@@ -90,6 +90,7 @@
     "intel.enabled",
     "graphify.enabled",
     "graphify.build_timeout",
+    "graphify.auto_update",
     "claude_md_path",
     "claude_md_assembly.mode",
     "runtime",

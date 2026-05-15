@@ -6828,7 +6828,7 @@ function uninstall(isGlobal, runtime = 'claude') {
   // 4. Remove GSD hooks
   const hooksDir = path.join(targetDir, 'hooks');
   if (fs.existsSync(hooksDir)) {
-    const gsdHooks = ['gsd-statusline.js', 'gsd-check-update.js', 'gsd-context-monitor.js', 'gsd-prompt-guard.js', 'gsd-read-guard.js', 'gsd-read-injection-scanner.js', 'gsd-update-banner.js', 'gsd-workflow-guard.js', 'gsd-session-state.sh', 'gsd-validate-commit.sh', 'gsd-phase-boundary.sh'];
+    const gsdHooks = ['gsd-statusline.js', 'gsd-check-update.js', 'gsd-context-monitor.js', 'gsd-prompt-guard.js', 'gsd-read-guard.js', 'gsd-read-injection-scanner.js', 'gsd-update-banner.js', 'gsd-workflow-guard.js', 'gsd-session-state.sh', 'gsd-validate-commit.sh', 'gsd-phase-boundary.sh', 'gsd-graphify-update.sh'];
     let hookCount = 0;
     for (const hook of gsdHooks) {
       const hookPath = path.join(hooksDir, hook);
@@ -8619,7 +8619,7 @@ function install(isGlobal, runtime = 'claude', options = {}) {
       if (verifyInstalled(hooksDest, 'hooks')) {
         console.log(`  ${green}✓${reset} Installed hooks (bundled)`);
         // Warn if expected community .sh hooks are missing (non-fatal)
-        const expectedShHooks = ['gsd-session-state.sh', 'gsd-validate-commit.sh', 'gsd-phase-boundary.sh'];
+        const expectedShHooks = ['gsd-session-state.sh', 'gsd-validate-commit.sh', 'gsd-phase-boundary.sh', 'gsd-graphify-update.sh'];
         for (const sh of expectedShHooks) {
           if (!fs.existsSync(path.join(hooksDest, sh))) {
             console.warn(`  ${yellow}⚠${reset}  Missing expected hook: ${sh}`);
@@ -9412,6 +9412,35 @@ function install(isGlobal, runtime = 'claude', options = {}) {
       console.warn(`  ${yellow}⚠${reset}  Skipped commit validation hook — gsd-validate-commit.sh not found at target`);
     } else if (!hasValidateCommitHook && !validateCommitCommand) {
       console.warn(`  ${yellow}⚠${reset}  Skipped commit validation hook — Bash executable path unavailable (#3393)`);
+    }
+
+    // Configure graphify auto-update hook (opt-in via graphify.auto_update; default false, #3347).
+    // PostToolUse Bash matcher — fires after git commit/merge/pull/rebase --continue/cherry-pick
+    // on the default branch, dispatches `graphify update .` in a detached subprocess. No-op unless
+    // .planning/config.json has BOTH graphify.enabled=true AND graphify.auto_update=true.
+    const graphifyUpdateCommand = isGlobal
+      ? buildHookCommand(targetDir, 'gsd-graphify-update.sh', hookOpts)
+      : localShellCmd('gsd-graphify-update.sh');
+    const hasGraphifyUpdateHook = settings.hooks[postToolEvent].some(entry =>
+      entry.hooks && entry.hooks.some(h => h.command && h.command.includes('gsd-graphify-update'))
+    );
+    const graphifyUpdateFile = path.join(targetDir, 'hooks', 'gsd-graphify-update.sh');
+    if (!hasGraphifyUpdateHook && fs.existsSync(graphifyUpdateFile) && graphifyUpdateCommand) {
+      settings.hooks[postToolEvent].push({
+        matcher: 'Bash',
+        hooks: [
+          {
+            type: 'command',
+            command: graphifyUpdateCommand,
+            timeout: 5
+          }
+        ]
+      });
+      console.log(`  ${green}✓${reset} Configured graphify auto-update hook (opt-in via graphify.auto_update)`);
+    } else if (!hasGraphifyUpdateHook && !fs.existsSync(graphifyUpdateFile)) {
+      console.warn(`  ${yellow}⚠${reset}  Skipped graphify auto-update hook — gsd-graphify-update.sh not found at target`);
+    } else if (!hasGraphifyUpdateHook && !graphifyUpdateCommand) {
+      console.warn(`  ${yellow}⚠${reset}  Skipped graphify auto-update hook — Bash executable path unavailable (#3393)`);
     }
 
     // Configure session state orientation hook (opt-in)

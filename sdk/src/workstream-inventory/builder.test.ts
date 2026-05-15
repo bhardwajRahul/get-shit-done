@@ -231,6 +231,10 @@ describe('isCompletedInventory', () => {
     expect(isCompletedInventory('unknown')).toBe(false);
   });
 
+  it('returns false for "unarchived" (word-boundary guard)', () => {
+    expect(isCompletedInventory('unarchived')).toBe(false);
+  });
+
   it('returns false for empty string', () => {
     expect(isCompletedInventory('')).toBe(false);
   });

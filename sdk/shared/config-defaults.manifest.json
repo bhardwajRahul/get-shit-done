@@ -68,5 +68,8 @@
   "ship": {
     "pr_body_sections": []
   },
+  "graphify": {
+    "auto_update": false
+  },
   "agent_skills": {}
 }
