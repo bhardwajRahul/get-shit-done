@@ -55,7 +55,9 @@ describe('#3427 + #3433 — Codex installer avoids duplicate skills and mixed ho
     cleanup(tmpRoot);
   });
 
-  test('removes legacy gsd-* copies from ~/.codex/skills and does not regenerate them', () => {
+  test('regenerates managed gsd-* skill copies and preserves unrelated user skills (#3562 reverses prior #3427/#3433 behaviour)', () => {
+    // Stale legacy body — fresh install must overwrite this so Codex sees the
+    // current SKILL.md, not whatever was last on disk.
     const legacySkillBody = '# old managed\n';
     fs.mkdirSync(path.join(codexHome, 'skills', 'gsd-help'), { recursive: true });
     fs.writeFileSync(path.join(codexHome, 'skills', 'gsd-help', 'SKILL.md'), legacySkillBody);
@@ -77,7 +79,15 @@ describe('#3427 + #3433 — Codex installer avoids duplicate skills and mixed ho
       ? fs.readdirSync(skillsDir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name)
       : [];
 
-    assert.equal(entries.some((name) => name.startsWith('gsd-')), false);
+    // #3562: $gsd-* commands are discoverable only when skills/gsd-*/SKILL.md
+    // exists. The installer must regenerate (not remove) the managed gsd-*
+    // directories.
+    assert.equal(entries.includes('gsd-help'), true);
+    const refreshedBody = fs.readFileSync(path.join(skillsDir, 'gsd-help', 'SKILL.md'), 'utf8');
+    assert.notEqual(refreshedBody, legacySkillBody, 'stale legacy body must be overwritten');
+    assert.ok(refreshedBody.startsWith('---'), 'refreshed SKILL.md must be valid frontmatter shape');
+
+    // Unrelated user skills are preserved — the regen scope is `gsd-*` only.
     assert.equal(entries.includes('custom-user-skill'), true);
   });
 

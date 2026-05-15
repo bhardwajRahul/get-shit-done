@@ -8088,23 +8088,27 @@ function install(isGlobal, runtime = 'claude', options = {}) {
       failures.push('command/gsd-*');
     }
   } else if (isCodex) {
+    // Codex CLI (0.130.0 at time of #3562) does NOT auto-discover commands
+    // from get-shit-done/workflows/*.md or agents/*.md. It only registers
+    // commands from skills/<name>/SKILL.md. The earlier "Codex discovers
+    // official skills directly" branch left users with workflows on disk and
+    // no $gsd-* entrypoints. Regenerate the skill surface the same way the
+    // other runtimes do — copyCommandsAsCodexSkills() rewrites each
+    // commands/gsd/*.md as ~/.codex/skills/gsd-<name>/SKILL.md and converts
+    // Claude-flavored command frontmatter into Codex skill frontmatter.
     const skillsDir = path.join(targetDir, 'skills');
-    // Codex now discovers repo/user/admin/system skills from .agents/skills and
-    // warns if a layer mixes redundant hook/skill representations. Legacy
-    // gsd-* copies under ~/.codex/skills are therefore removed and no longer
-    // regenerated.
-    let removedLegacyCodexSkills = 0;
+    const gsdSrc = _stageSkills(_commandsDir);
+    copyCommandsAsCodexSkills(gsdSrc, skillsDir, 'gsd', pathPrefix, runtime);
     if (fs.existsSync(skillsDir)) {
-      for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-        if (!entry.isDirectory() || !entry.name.startsWith('gsd-')) continue;
-        fs.rmSync(path.join(skillsDir, entry.name), { recursive: true, force: true });
-        removedLegacyCodexSkills += 1;
+      const count = fs.readdirSync(skillsDir, { withFileTypes: true })
+        .filter(e => e.isDirectory() && e.name.startsWith('gsd-')).length;
+      if (count > 0) {
+        console.log(`  ${green}✓${reset} Installed ${count} skills to skills/`);
+      } else {
+        failures.push('skills/gsd-*');
       }
-    }
-    if (removedLegacyCodexSkills > 0) {
-      console.log(`  ${green}✓${reset} Removed ${removedLegacyCodexSkills} legacy Codex gsd-* skill copies from skills/`);
     } else {
-      console.log(`  ${dim}↳${reset} Skipped Codex skill-copy generation (Codex discovers official skills directly)`);
+      failures.push('skills/gsd-*');
     }
   } else if (isCopilot) {
     const skillsDir = path.join(targetDir, 'skills');
