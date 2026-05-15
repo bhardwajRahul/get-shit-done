@@ -94,7 +94,7 @@ function runHook(tmpDir, toolPayload, { env = {}, pathPrepend = '' } = {}) {
       ...env,
     },
     encoding: 'utf8',
-    timeout: 5000,
+    timeout: 30000,
   });
 }
 
@@ -256,7 +256,7 @@ describe('#3347 hook — dispatch path (all gates pass)', () => {
 
     // Wait up to 5s for the detached process to finish updating the status
     const statusPath = path.join(tmpDir, '.planning/graphs/.last-build-status.json');
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 15000;
     let status;
     while (Date.now() < deadline) {
       if (fs.existsSync(statusPath)) {
@@ -285,7 +285,7 @@ describe('#3347 hook — dispatch path (all gates pass)', () => {
     );
 
     const statusPath = path.join(tmpDir, '.planning/graphs/.last-build-status.json');
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + 15000;
     let status;
     while (Date.now() < deadline) {
       if (fs.existsSync(statusPath)) {

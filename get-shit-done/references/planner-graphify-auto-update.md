@@ -1,12 +1,12 @@
-# Planner — Graphify Auto-Update Awareness
+# Graphify Auto-Update — Status Surfacing
 
-> Loaded by `gsd-planner` and `gsd-phase-researcher` inside the `<step name="load_graph_context">` block, after the existing `graphify status` staleness check. Surfaces the most recent auto-update state from `.planning/graphs/.last-build-status.json`, the file written by the bundled `hooks/gsd-graphify-update.sh` PostToolUse hook (opt-in via `graphify.auto_update`, default `false` — issue #3347).
+> Documents how `gsd-planner` and `gsd-phase-researcher` surface the opt-in graphify auto-update state (issue #3347). The status surface lives inside `graphifyStatus()` in `get-shit-done/bin/lib/graphify.cjs`; no planner-side prompt changes are required.
 
 ## Why this exists
 
-The graph at `.planning/graphs/graph.json` is consumed automatically (every `gsd-planner` and `gsd-phase-researcher` step) but produced manually (one `/gsd:graphify build` per session at best). Without auto-update, the producer-consumer gap silently widens with every commit. The existing `stale: true` annotation tells the consumer the mtime is old; it cannot tell the consumer whether the auto-build hook has been running, just failed, or is in flight.
+The graph at `.planning/graphs/graph.json` is consumed automatically (every `gsd-planner` and `gsd-phase-researcher` step) but produced manually (`/gsd:graphify build` per session at best). Without auto-update, the producer-consumer gap silently widens with every commit. The existing `stale: true` annotation tells the consumer the mtime is old; it cannot tell the consumer whether the auto-build hook has been running, just failed, or is in flight.
 
-When `graphify.auto_update: true`, the hook writes a status file synchronously before detaching and rewrites it on completion. This reference instructs the planner to read that file and surface the state inline with the existing staleness note.
+When `graphify.auto_update: true`, the bundled `hooks/gsd-graphify-update.sh` PostToolUse hook fires after HEAD-advancing git operations on the default branch and dispatches `graphify update .` in a detached subprocess. The hook writes a status file synchronously before detach; the detached process rewrites it on completion.
 
 ## The status file
 
@@ -25,34 +25,43 @@ When `graphify.auto_update: true`, the hook writes a status file synchronously b
 
 The hook writes `status: "running"` synchronously **before** detach, so the next planner invocation can see the in-flight signal even if `graphify update .` has not finished. The detached `hooks/lib/gsd-graphify-rebuild.sh` rewrites the file to `ok` or `failed` on completion (with `exit_code` and `duration_ms`).
 
-## Read the file
+## How the planner surfaces it (zero new prompt content)
 
-```bash
-test -f .planning/graphs/.last-build-status.json && cat .planning/graphs/.last-build-status.json
+`graphifyStatus()` in `get-shit-done/bin/lib/graphify.cjs` reads `.last-build-status.json` and folds the `running` / `failed` states into the existing `stale: true` signal:
+
+```javascript
+const autoUpdateStale =
+  lastBuildAutoUpdate &&
+  (lastBuildAutoUpdate.status === 'failed' || lastBuildAutoUpdate.status === 'running');
+
+return {
+  ...
+  stale: age > STALE_MS || Boolean(autoUpdateStale),
+  ...
+  last_build_auto_update: lastBuildAutoUpdate || null,
+};
 ```
 
-If the file is absent, the operator either hasn't opted in to `graphify.auto_update` or hasn't yet performed a HEAD-advancing git op since enabling it. The annotation below is a no-op in that case.
+The planner and researcher already run `node ... graphify status` inside their `<step name="load_graph_context">` blocks and already have the rule:
 
-## Format the annotation
+> If the status response has `stale: true`, note for later: "Graph is `{age_hours}h` old — treat semantic relationships as approximate."
 
-Combine the status with the current `HEAD` sha when relevant. The first matching case wins:
+That rule now fires correctly in three additional cases:
 
-| Status | `head_at_build` vs current HEAD | Annotation |
-|--------|----------------------------------|------------|
-| `running` | (any) | "Graph auto-rebuild in flight (started `{ts}`); treat semantic relationships as approximate until rebuild completes." |
-| `failed` | (any) | "Graph auto-rebuild FAILED at `{ts}` (exit `{exit_code}`); the planning context below is from the prior build. Run `/gsd:graphify build` to retry manually." |
-| `ok` | matches | (silent — graph is current at the current HEAD) |
-| `ok` | differs | "Graph last rebuilt at `{ts}` for commit `{head_at_build[:7]}`; current HEAD has advanced — treat semantic relationships as approximate." |
-| (file missing) | n/a | (silent — fall back to the existing `stale: true` annotation only) |
+| Trigger | What user sees |
+|---------|----------------|
+| Auto-build status = `failed` | Existing "treat as approximate" note fires (because `stale: true`). The full `last_build_auto_update` object is in the JSON for callers that want exit-code / duration / commit-sha context. |
+| Auto-build status = `running` | Same — the next planner invocation knows the graph is mid-rebuild and treats it as approximate until the detached process completes. |
+| Auto-build status = `ok` AND mtime < 24h | Annotation is silent — the graph is fresh and the most recent auto-build succeeded. |
 
-Get the current HEAD with `git rev-parse HEAD`.
+The file-missing case is silent (the operator either has not opted in or has not yet triggered a HEAD-advancing git op since enabling).
 
-## Interaction with the existing staleness note
+## Why this design
 
-If both the existing `stale: true` mtime check AND the auto-update annotation are non-silent, present them on the same line, ordered: auto-update state first, mtime staleness second. Example:
-
-> "Graph auto-rebuild FAILED at 2026-05-15T14:02:23Z (exit 1); the planning context below is from the prior build. Run `/gsd:graphify build` to retry manually. (Existing graph is 36h old — treat semantic relationships as approximate.)"
+- **No planner-side prompt changes.** Folding into `stale: true` reuses the existing rule, which means no new content in `agents/gsd-planner.md` (which is already at the `< 48K` decomposition limit per `DEFECT.AGENT-FILE-SIZE-CAP-BREACH`).
+- **Tests catch regressions on the seam.** `tests/feat-3347-graphify-auto-update-config.test.cjs` pins `graphifyStatus` behavior for status=`failed` / `running` / `ok` / file-missing.
+- **Backwards compatible.** Callers that don't read `last_build_auto_update` see the same shape as before, with `stale` reflecting both mtime AND auto-build state. No consumer breakage.
 
 ## Opt-in reminder
 
-The auto-update mechanism is opt-in (`graphify.auto_update: false` by default per issue #3347). Users who haven't opted in will never produce this file, and every annotation above is a no-op. The existing `stale: true` annotation continues to be the only signal.
+The auto-update mechanism is opt-in (`graphify.auto_update: false` by default per issue #3347). Users who haven't opted in will never produce this file. `graphifyStatus()` returns `last_build_auto_update: null` and falls back to the mtime-only `stale` rule.

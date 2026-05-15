@@ -892,8 +892,6 @@ node "$HOME/.claude/get-shit-done/bin/gsd-tools.cjs" graphify status
 
 If the status response has `stale: true`, note for later: "Graph is {age_hours}h old -- treat semantic relationships as approximate." Include this annotation inline with any graph context injected below.
 
-If `.planning/graphs/.last-build-status.json` exists, load @get-shit-done/references/planner-graphify-auto-update.md for auto-build state surfacing (opt-in, #3347).
-
 Query the graph for phase-relevant dependency context (single query per D-06):
 
 ```bash
