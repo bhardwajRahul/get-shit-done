@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { escapeRegex, loadConfig, normalizePhaseName, phaseMarkdownRegexSource, comparePhaseNum, findPhaseInternal, getArchivedPhaseDirs, generateSlugInternal, getMilestonePhaseFilter, stripShippedMilestones, extractCurrentMilestone, replaceInCurrentMilestone, toPosixPath, output, error, readSubdirectories, phaseTokenMatches } = require('./core.cjs');
+const { escapeRegex, loadConfig, normalizePhaseName, phaseMarkdownRegexSource, comparePhaseNum, findPhaseInternal, getArchivedPhaseDirs, generateSlugInternal, getMilestonePhaseFilter, stripShippedMilestones, extractCurrentMilestone, replaceInCurrentMilestone, toPosixPath, output, error, readSubdirectories, phaseTokenMatches, ERROR_REASON } = require('./core.cjs');
 const { platformWriteSync, platformReadSync, platformEnsureDir } = require('./shell-command-projection.cjs');
 const { planningDir, withPlanningLock } = require('./planning-workspace.cjs');
 const { extractFrontmatter } = require('./frontmatter.cjs');
@@ -208,6 +208,65 @@ function cmdPhaseNextDecimal(cwd, basePhase, raw) {
   } catch (e) {
     error('Failed to calculate next decimal phase: ' + e.message);
   }
+}
+
+function getRoadmapModeForPhase(cwd, phaseNum) {
+  const roadmapPath = path.join(planningDir(cwd), 'ROADMAP.md');
+  if (!fs.existsSync(roadmapPath)) return null;
+
+  const rawContent = fs.readFileSync(roadmapPath, 'utf-8');
+  const milestoneContent = extractCurrentMilestone(rawContent, cwd);
+  const fullContent = stripShippedMilestones(rawContent);
+  const escapedPhase = phaseMarkdownRegexSource(phaseNum);
+  const phaseHeader = new RegExp(`#{2,4}\\s*Phase\\s+${escapedPhase}\\s*:`, 'i');
+
+  for (const content of [milestoneContent, fullContent]) {
+    const headerMatch = content.match(phaseHeader);
+    if (!headerMatch || headerMatch.index === undefined) continue;
+
+    const sectionStart = headerMatch.index;
+    const rest = content.slice(sectionStart);
+    const nextHeader = rest.slice(headerMatch[0].length).match(/\n#{2,4}\s+Phase\s+\d/i);
+    const sectionEnd = nextHeader ? sectionStart + headerMatch[0].length + nextHeader.index : content.length;
+    const section = content.slice(sectionStart, sectionEnd);
+    const modeMatch = section.match(/\*\*Mode(?::\*\*|\*\*:)\s*([^\n]+)/i);
+    if (modeMatch) return modeMatch[1].trim().toLowerCase();
+  }
+
+  return null;
+}
+
+function cmdPhaseMvpMode(cwd, args, raw) {
+  const phaseNum = args[0];
+  if (!phaseNum) {
+    error('Usage: phase.mvp-mode <phase-number> [--cli-flag]', ERROR_REASON.USAGE);
+  }
+
+  const cliFlagPresent = args.includes('--cli-flag');
+  const roadmapMode = getRoadmapModeForPhase(cwd, phaseNum);
+  const config = loadConfig(cwd);
+  const configMvpMode = Boolean(config.mvp_mode);
+
+  let active = false;
+  let source = 'none';
+  if (cliFlagPresent) {
+    active = true;
+    source = 'cli_flag';
+  } else if (roadmapMode === 'mvp') {
+    active = true;
+    source = 'roadmap';
+  } else if (configMvpMode) {
+    active = true;
+    source = 'config';
+  }
+
+  output({
+    active,
+    source,
+    roadmap_mode: roadmapMode,
+    config_mvp_mode: configMvpMode,
+    cli_flag_present: cliFlagPresent,
+  }, raw);
 }
 
 function cmdFindPhase(cwd, phase, raw) {
@@ -1329,6 +1388,7 @@ module.exports = {
   cmdPhasePlanIndex,
   cmdPhaseAdd,
   cmdPhaseAddBatch,
+  cmdPhaseMvpMode,
   cmdPhaseInsert,
   cmdPhaseRemove,
   cmdPhaseComplete,
