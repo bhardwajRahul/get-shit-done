@@ -315,6 +315,7 @@
       "validate-command-router.cjs",
       "verify-command-router.cjs",
       "verify.cjs",
+      "workstream-inventory-builder.generated.cjs",
       "workstream-inventory.cjs",
       "workstream-name-policy.cjs",
       "workstream.cjs",

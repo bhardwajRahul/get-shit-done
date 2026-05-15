@@ -113,6 +113,11 @@ jobs:
         shell: bash
         run: node sdk/scripts/check-configuration-fresh.mjs
 
+      - name: SDK generated workstream-inventory-builder artifact drift check
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
+        shell: bash
+        run: node sdk/scripts/check-workstream-inventory-builder-fresh.mjs
+
       - name: Run tests with coverage
         shell: bash
         run: npm run test:coverage

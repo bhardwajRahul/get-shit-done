@@ -40,6 +40,8 @@
     "check:state-document-fresh": "npm run build && node scripts/check-state-document-fresh.mjs",
     "gen:configuration": "npm run build && node scripts/gen-configuration.mjs",
     "check:configuration-fresh": "npm run build && node scripts/check-configuration-fresh.mjs",
+    "gen:workstream-inventory-builder": "npm run build && node scripts/gen-workstream-inventory-builder.mjs",
+    "check:workstream-inventory-builder-fresh": "npm run build && node scripts/check-workstream-inventory-builder-fresh.mjs",
     "prepublishOnly": "rm -rf dist && tsc && chmod +x dist/cli.js",
     "test": "vitest run",
     "test:unit": "vitest run --project unit",

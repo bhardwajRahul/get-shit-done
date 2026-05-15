@@ -360,7 +360,7 @@ The `gsd-planner` agent is decomposed into a core agent plus reference modules t
 
 ---
 
-## CLI Modules (61 shipped)
+## CLI Modules (62 shipped)
 
 Full listing: `get-shit-done/bin/lib/*.cjs`.
 
@@ -423,7 +423,8 @@ Full listing: `get-shit-done/bin/lib/*.cjs`.
 | `validate-command-router.cjs` | Thin CJS subcommand router adapter for `gsd-tools validate` |
 | `verify-command-router.cjs` | Thin CJS subcommand router adapter for `gsd-tools verify` |
 | `verify.cjs` | Plan structure, phase completeness, reference, commit validation |
-| `workstream-inventory.cjs` | Shared workstream inventory projection: state fields, phase/plan/summary counts, roadmap phase count, and active marker |
+| `workstream-inventory-builder.generated.cjs` | GENERATED — pure workstream inventory projection builder; CJS artifact emitted from `sdk/src/workstream-inventory/builder.ts` via `sdk/scripts/gen-workstream-inventory-builder.mjs`; do not edit directly |
+| `workstream-inventory.cjs` | Shared workstream inventory projection: state fields, phase/plan/summary counts, roadmap phase count, and active marker — thin orchestrator that delegates pure projection to `workstream-inventory-builder.generated.cjs` |
 | `workstream-name-policy.cjs` | Canonical workstream name validation (`isValidActiveWorkstreamName`) and slug normalization (`toWorkstreamSlug`); shared by all workstream callers |
 | `workstream.cjs` | Workstream CRUD, migration, session-scoped active pointer |
 | `worktree-safety.cjs` | Worktree-root resolution and non-destructive prune policy decisions; owns W017 health-check logic |

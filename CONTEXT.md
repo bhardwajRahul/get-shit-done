@@ -59,7 +59,7 @@ Shared CJS/SDK Module owning config load, legacy-key normalization, defaults mer
 Module owning `.planning` path resolution, active workstream pointer policy (`session-scoped > shared`), pointer self-heal behavior, and planning lock semantics for workstream-aware execution.
 
 ### Workstream Inventory Module
-Shared CJS/SDK Module owning workstream directory discovery, per-workstream state projection, phase/plan/summary counting, roadmap-declared phase count, active marker projection, and active-workstream collision inputs. Command handlers render list/status/progress outputs from this inventory instead of rescanning `.planning/workstreams/*` directly.
+Shared CJS/SDK Module owning workstream directory discovery, per-workstream state projection, phase/plan/summary counting, roadmap-declared phase count, active marker projection, and active-workstream collision inputs. Command handlers render list/status/progress outputs from this inventory instead of rescanning `.planning/workstreams/*` directly. Source of truth for the pure projection is `sdk/src/workstream-inventory/builder.ts` (a Builder Module emitted to `get-shit-done/bin/lib/workstream-inventory-builder.generated.cjs` via the generator pattern); per-side Reader Adapters (`bin/lib/workstream-inventory.cjs` sync, `sdk/src/query/workstream-inventory.ts` async-ready) collect filesystem inputs and delegate projection to the Builder.
 
 ### Planning Path Projection Module
 SDK query Module owning projection from project/workstream context to concrete `.planning` paths. Policy precedence is `explicit workstream > env workstream > env project > root`. Invalid workspace context is a validation error at this seam rather than a silent fallback.
