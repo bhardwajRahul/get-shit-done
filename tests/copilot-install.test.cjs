@@ -800,14 +800,24 @@ describe('Copilot content conversion - engine files', () => {
   });
 
   test('converts engine .cjs files correctly', () => {
-    const verifyCjs = fs.readFileSync(
-      path.join(__dirname, '..', 'get-shit-done', 'bin', 'lib', 'verify.cjs'), 'utf8'
-    );
-    const result = convertClaudeToCopilotContent(verifyCjs);
+    // #3584: bin/lib/*.cjs no longer hardcodes `/gsd:<cmd>` literals — runtime
+    // emissions now flow through `runtime-slash.cjs::formatGsdSlash()` which
+    // already produces the runtime-routable shape. The Copilot install
+    // converter still needs to handle source files that DO contain literal
+    // colon-form references (commands/gsd/*.md, workflow .md files, etc.), so
+    // assert the converter contract against a synthetic input that mirrors the
+    // shape those files have.
+    const synthetic = [
+      'Run /gsd:new-project to initialize.',
+      'On error, run /gsd:health --repair to regenerate.',
+      'For phase work, use /gsd:execute-phase 1.',
+    ].join('\n');
+    const result = convertClaudeToCopilotContent(synthetic);
 
-    assert.ok(!result.match(/gsd:[a-z]/), 'no gsd: references remain');
-    assert.ok(result.includes('gsd-new-project'), 'gsd:new-project converted');
-    assert.ok(result.includes('gsd-health'), 'gsd:health converted');
+    assert.ok(!result.match(/gsd:[a-z]/), 'no gsd: references remain after conversion');
+    assert.ok(result.includes('gsd-new-project'), 'gsd:new-project converted to hyphen form');
+    assert.ok(result.includes('gsd-health'), 'gsd:health converted to hyphen form');
+    assert.ok(result.includes('gsd-execute-phase'), 'gsd:execute-phase converted to hyphen form');
   });
 });
 
