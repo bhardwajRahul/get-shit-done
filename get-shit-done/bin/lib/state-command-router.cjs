@@ -5,21 +5,22 @@ const { routeCjsCommandFamily } = require('./cjs-command-router-adapter.cjs');
 const { output } = require('./core.cjs');
 
 // ─── SDK bridge (Phase 5.1) ─────────────────────────────────────────────────
-// executeForCjs requires the compiled dist artifact. The require() path is
-// resolved from gsd-tools.cjs's node_modules rather than this file's location,
-// so we use a lazy require to avoid resolution errors on environments that
-// haven't built the SDK yet.
+// executeForCjs is loaded lazily from the SDK public package export so this
+// router does not rely on private dist subpaths that are not exported.
 let _executeForCjs = null;
 let _formatStateLoadRawStdout = null;
 
 function tryLoadSdk() {
   if (_executeForCjs !== null) return true;
   try {
-    const bridgeModule = require('@gsd-build/sdk/dist/runtime-bridge-sync/index.js');
-    _executeForCjs = bridgeModule.executeForCjs;
-    // formatStateLoadRawStdout is in state-project-load (re-exported from SDK dist)
-    const loadModule = require('@gsd-build/sdk/dist/query/state-project-load.js');
-    _formatStateLoadRawStdout = loadModule.formatStateLoadRawStdout;
+    const sdkModule = require('@gsd-build/sdk');
+    _executeForCjs = sdkModule.executeForCjs;
+    _formatStateLoadRawStdout = sdkModule.formatStateLoadRawStdout;
+    if (typeof _executeForCjs !== 'function' || typeof _formatStateLoadRawStdout !== 'function') {
+      _executeForCjs = null;
+      _formatStateLoadRawStdout = null;
+      return false;
+    }
     return true;
   } catch {
     return false;
