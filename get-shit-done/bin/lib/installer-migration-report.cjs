@@ -115,6 +115,17 @@ function classifyPromptUserAction(action) {
   if (/^skills\/gsd-[^/]+\/SKILL\.md$/.test(relPath)) {
     return { category: 'user-facing-skill', choice: 'keep' };
   }
+  // #3610: bundled GSD hooks at hooks/gsd-<name>.<ext>. These are part of
+  // the npm distribution (`hooks/gsd-*.{js,sh,cjs,mjs}` shipped in the
+  // package), NOT user-owned files. When a first-time-baseline scan finds
+  // them on disk without manifest entries — the case for any upgrade from
+  // a pre-manifest-baseline release — the safe default is to remove them
+  // so the installer can write the fresh bundled versions in their place.
+  // Restricted to top-level files (`hooks/gsd-X.ext`) so nested user
+  // directories like `hooks/gsd-helpers/...` do NOT auto-classify.
+  if (/^hooks\/gsd-[^/]+\.(?:js|sh|cjs|mjs)$/.test(relPath)) {
+    return { category: 'bundled-gsd-hook', choice: 'remove' };
+  }
   return null;
 }
 
@@ -206,10 +217,17 @@ function resolveInstallerMigrationPromptsForNonTty(result, options = {}) {
 
       if (choice) {
         const resolved = materializeResolution(action, choice);
-        // Inject the concrete action into plan.actions so the apply
-        // step picks it up.
+        // Replace the original prompt-user action in-place when present so
+        // applyInstallerMigrationPlan never sees an unsupported action type.
+        // Fallback to append only when the blocked action did not originate
+        // from plan.actions (defensive).
         if (result.plan && Array.isArray(result.plan.actions)) {
-          result.plan.actions.push(resolved);
+          const idx = result.plan.actions.indexOf(action);
+          if (idx >= 0) {
+            result.plan.actions[idx] = resolved;
+          } else {
+            result.plan.actions.push(resolved);
+          }
         }
         resolutions.push({
           relPath: action.relPath,

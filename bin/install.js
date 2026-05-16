@@ -8061,13 +8061,21 @@ function install(isGlobal, runtime = 'claude', options = {}) {
   // #3541: non-interactive runs (typical /gsd-update via Claude Code) have
   // no stdin TTY and therefore no way to answer prompt-user migration
   // actions. Resolve safe categories by classification (stale SDK build
-  // artifacts → remove; user-facing skills → keep) and log every
-  // resolution; anything that cannot be safely defaulted falls through
-  // to assertInstallerMigrationsUnblocked, which now emits a grouped
-  // error with the documented resolution path.
+  // artifacts → remove; user-facing skills → keep; bundled GSD hooks →
+  // remove [#3610]) and log every resolution; anything that cannot be
+  // safely defaulted falls through to assertInstallerMigrationsUnblocked,
+  // which now emits a grouped error with the documented resolution path.
+  //
+  // #3610: the classifier-based resolution must run regardless of TTY.
+  // For unambiguous categories (e.g. `hooks/gsd-*` bundled hooks left
+  // behind by a previous version), there is no actual "user choice" to
+  // make — the file is a known GSD-managed artifact and the installer is
+  // about to write the fresh bundled version. Gating the resolver on
+  // `!isTTY` made `npx get-shit-done-cc@latest --codex` hard-abort with
+  // 12 blocked bundled hooks. The env-override branch (operator-supplied
+  // GSD_INSTALLER_MIGRATION_RESOLVE) still applies only in non-TTY mode.
   const _migrationIsTty = process.stdin && process.stdin.isTTY === true;
-  if (!_migrationIsTty &&
-      Array.isArray(installerMigrationResult.blocked) &&
+  if (Array.isArray(installerMigrationResult.blocked) &&
       installerMigrationResult.blocked.length > 0 &&
       installerMigrationResult.plan &&
       Array.isArray(installerMigrationResult.plan.actions)) {
