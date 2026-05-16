@@ -147,7 +147,7 @@ function runGsdTools(args, projectDir) {
   });
 }
 
-function listProjectFiles(projectDir) {
+function snapshotProjectState(projectDir) {
   const files = [];
   function walk(dir) {
     if (!fs.existsSync(dir)) return;
@@ -203,7 +203,7 @@ describe('feat-3251: generated aliases dispatch through real gsd-tools behavior'
           '',
         ].join('\n'),
       );
-      const beforeFiles = listProjectFiles(projectDir);
+      const beforeFiles = snapshotProjectState(projectDir);
 
       const result = runGsdTools(['phase', 'mvp-mode', '1'], projectDir);
       assert.equal(result.status, 0, result.stderr);
@@ -214,7 +214,7 @@ describe('feat-3251: generated aliases dispatch through real gsd-tools behavior'
       assert.equal(output.roadmap_mode, 'mvp');
       assert.equal(output.config_mvp_mode, false);
       assert.equal(output.cli_flag_present, false);
-      assert.deepEqual(listProjectFiles(projectDir), beforeFiles);
+      assert.deepEqual(snapshotProjectState(projectDir), beforeFiles);
     } finally {
       fs.rmSync(projectDir, { recursive: true, force: true });
     }
@@ -239,7 +239,7 @@ describe('feat-3251: generated aliases dispatch through real gsd-tools behavior'
           '',
         ].join('\n'),
       );
-      const beforeFiles = listProjectFiles(projectDir);
+      const beforeFiles = snapshotProjectState(projectDir);
 
       const result = runGsdTools(['phase', 'mvp-mode', '1'], projectDir);
       assert.equal(result.status, 0, result.stderr);
@@ -248,7 +248,7 @@ describe('feat-3251: generated aliases dispatch through real gsd-tools behavior'
       assert.equal(output.active, false);
       assert.equal(output.source, 'none');
       assert.equal(output.roadmap_mode, null);
-      assert.deepEqual(listProjectFiles(projectDir), beforeFiles);
+      assert.deepEqual(snapshotProjectState(projectDir), beforeFiles);
     } finally {
       fs.rmSync(projectDir, { recursive: true, force: true });
     }
@@ -257,7 +257,7 @@ describe('feat-3251: generated aliases dispatch through real gsd-tools behavior'
   test('phase.mvp-mode JSON error is typed and leaves project files untouched', () => {
     const projectDir = createProject();
     try {
-      const beforeFiles = listProjectFiles(projectDir);
+      const beforeFiles = snapshotProjectState(projectDir);
       const result = runGsdTools(['--json-errors', 'phase', 'mvp-mode'], projectDir);
       assert.notEqual(result.status, 0);
       assert.equal(result.stdout, '');
@@ -268,7 +268,7 @@ describe('feat-3251: generated aliases dispatch through real gsd-tools behavior'
       assert.equal(error.reason, 'usage');
       assert.equal(typeof error.message, 'string');
       assert.equal(/\n\s*at\s/.test(result.stderr), false, 'non-debug failure must not print a stack trace');
-      assert.deepEqual(listProjectFiles(projectDir), beforeFiles);
+      assert.deepEqual(snapshotProjectState(projectDir), beforeFiles);
     } finally {
       fs.rmSync(projectDir, { recursive: true, force: true });
     }
