@@ -31,6 +31,13 @@ function runArgvSafe(file: string, args: readonly string[], cwd: string): string
       cwd,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      // #3587: pin no-shell intent explicitly. The default is already
+      // false, but spelling it out (a) documents the architectural
+      // invariant at the call site and (b) prevents a future options
+      // refactor from silently re-enabling shell parsing — e.g. on
+      // Windows where `git.cmd` shim resolution can otherwise route
+      // through cmd.exe.
+      shell: false,
     }).trim();
   } catch {
     return null;

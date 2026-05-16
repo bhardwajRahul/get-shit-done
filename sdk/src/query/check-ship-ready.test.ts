@@ -3,11 +3,15 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdir, writeFile, rm, stat as fsStat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, writeFile, rm, stat as fsStat, readFile } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { checkShipReady } from './check-ship-ready.js';
+
+// __dirname equivalent for the architectural-invariant source check below.
+const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Initialize a fresh git repo in `dir` with one empty initial commit on
@@ -116,11 +120,12 @@ describe('checkShipReady', () => {
   // execution so branch names are passed as literal data, never parsed by
   // the shell.
 
-  it('#3587: branch name with shell-injection payload does not execute injected command', async () => {
+  it('#3587: branch name with shell-injection payload does not execute injected command', async (ctx) => {
     if (!initGitRepoOrSkip(projectDir)) {
       // git not available in this environment — the regression is git-specific
-      // and the production code is unreachable without git, so skipping is the
-      // correct disposition rather than a false-positive pass.
+      // and the production code is unreachable without git, so skip visibly
+      // rather than silently passing.
+      ctx.skip();
       return;
     }
 
@@ -134,39 +139,41 @@ describe('checkShipReady', () => {
     const injectedFile = 'INJECTED_BY_3587';
     const branchName = `foo;touch\${IFS}${injectedFile};bar`;
 
-    let exploitBranch: string | null = null;
+    let exploitReachable = true;
     try {
       execFileSync('git', ['checkout', '-q', '-b', branchName], {
         cwd: projectDir,
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      exploitBranch = branchName;
     } catch {
-      // If git refuses this exact refname (e.g. older or stricter
-      // platform), the canonical exploit shape isn't reachable here;
-      // skipping the assertion is the correct disposition rather than
-      // a false-positive pass.
-      exploitBranch = null;
+      // If git on this platform rejects the canonical exploit refname,
+      // the test's strongest assertion can't fire. Skip visibly with a
+      // descriptive reason so a CI lane that loses coverage shows up in
+      // the skip count rather than silently passing.
+      exploitReachable = false;
+    }
+
+    if (!exploitReachable) {
+      ctx.skip();
+      return;
     }
 
     await mkdir(join(projectDir, '.planning', 'phases', '01-test'), { recursive: true });
 
     await checkShipReady(['1'], projectDir);
 
-    if (exploitBranch !== null) {
-      // Negative proof: the injected `touch INJECTED_BY_3587` MUST NOT
-      // have run. Buggy code (shell-string execSync) creates the file
-      // as a side-effect of interpolating the malicious branch name into
-      // the command. Fixed code (argv-based execFileSync) passes the
-      // branch name as a single argv element, so the shell never sees
-      // the metacharacters.
-      let injectedExists = false;
-      try {
-        await fsStat(join(projectDir, injectedFile));
-        injectedExists = true;
-      } catch { /* missing — desired */ }
-      expect(injectedExists).toBe(false);
-    }
+    // Negative proof: the injected `touch INJECTED_BY_3587` MUST NOT
+    // have run. Buggy code (shell-string execSync) creates the file as
+    // a side-effect of interpolating the malicious branch name into the
+    // command. Fixed code (argv-based execFileSync) passes the branch
+    // name as a single argv element, so the shell never sees the
+    // metacharacters.
+    let injectedExists = false;
+    try {
+      await fsStat(join(projectDir, injectedFile));
+      injectedExists = true;
+    } catch { /* missing — desired */ }
+    expect(injectedExists).toBe(false);
   });
 
   it('#3587: round-trips a metacharacter branch name verbatim in current_branch', async () => {
@@ -224,6 +231,51 @@ describe('checkShipReady', () => {
 
     expect(typeof d.gh_available).toBe('boolean');
     expect(d.gh_authenticated).toBe(false);
+  });
+
+  // allow-test-rule: architectural-invariant
+  // The shell-injection class of vulnerabilities can only be detected
+  // structurally: a behavioral test sees identical outputs from
+  // `execSync('gh --version')` and `execFileSync('gh', ['--version'])`
+  // for non-malicious input. The defect is the *presence* of the shell
+  // parsing primitive, which behavioral tests cannot observe directly.
+  // This guard reads the production source and asserts the only
+  // child_process primitive used is the no-shell `execFileSync`. A
+  // future change that copy-pastes the old `execSync` pattern back into
+  // this module — e.g. for a new git probe — will fail this assertion
+  // even if the new call site happens to be unreachable in tests today.
+  it('#3587 (architectural invariant): check-ship-ready.ts never imports or calls execSync', async () => {
+    const sourcePath = join(HERE, 'check-ship-ready.ts');
+    const source = await readFile(sourcePath, 'utf-8');
+
+    // Strip JSDoc comments so historical mentions of "execSync" in
+    // explanatory prose can't accidentally satisfy or break the check.
+    // Looking only at code lines that would actually execute.
+    const stripped = source
+      .split('\n')
+      .filter((line) => !/^\s*\*/.test(line))  // drop JSDoc body lines
+      .filter((line) => !/^\s*\/\//.test(line)) // drop // single-line comments
+      .join('\n');
+
+    // Negative invariant: no shell-string subprocess primitive.
+    expect(stripped, 'check-ship-ready.ts must NOT call execSync — use execFileSync instead (#3587)').not.toMatch(
+      /\bexecSync\s*\(/,
+    );
+
+    // Negative invariant: no shell-string spawnSync either (same shell-parsing
+    // risk if shell:true is ever passed).
+    expect(stripped, 'check-ship-ready.ts must NOT use spawnSync with shell:true (#3587)').not.toMatch(
+      /spawnSync[\s\S]{0,200}shell\s*:\s*true/,
+    );
+
+    // Positive invariant: execFileSync is the only primitive imported AND
+    // every options object explicitly pins `shell: false`.
+    expect(stripped, 'check-ship-ready.ts must import execFileSync').toMatch(
+      /import\s*\{[^}]*\bexecFileSync\b[^}]*\}\s*from\s*['"]node:child_process['"]/,
+    );
+    expect(stripped, 'check-ship-ready.ts must pin shell:false on subprocess calls').toMatch(
+      /shell\s*:\s*false/,
+    );
   });
 
   it('blocks shipping when verification status is human_needed', async () => {
