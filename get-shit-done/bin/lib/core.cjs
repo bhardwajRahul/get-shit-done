@@ -687,6 +687,25 @@ function phaseMarkdownRegexSource(phaseNum) {
   return `0*${escapeRegex(integer)}${letter}${decimal}`;
 }
 
+/**
+ * #3599: when the caller passed a project-code-prefixed ID like `PROJ-42`,
+ * return the exact-escaped form so the caller can search the ROADMAP for
+ * `### Phase PROJ-42:` BEFORE falling back to the padding-tolerant numeric
+ * form. Returns null when the input has no project-code prefix — in that
+ * case the numeric form (`phaseMarkdownRegexSource`) is the only thing the
+ * caller needs.
+ *
+ * Two-pass at the call site preserves the #3537 contract (`CK-01` directory
+ * names mapping to `Phase 1:` prose) while letting `PROJ-42` resolve to its
+ * own prefixed heading without cross-matching a bare `### Phase 42:` that
+ * happens to share the trailing integer.
+ */
+function phaseMarkdownRegexSourceExact(phaseNum) {
+  const raw = String(phaseNum);
+  if (!/^[A-Z]{1,6}-(?=\d)/i.test(raw)) return null;
+  return escapeRegex(raw);
+}
+
 function comparePhaseNum(a, b) {
   // Strip optional project_code prefix before comparing (e.g., 'CK-01-name' → '01-name')
   const sa = String(a).replace(/^[A-Z]{1,6}-/, '');
@@ -1836,6 +1855,7 @@ module.exports = {
   escapeRegex,
   normalizePhaseName,
   phaseMarkdownRegexSource,
+  phaseMarkdownRegexSourceExact,
   comparePhaseNum,
   searchPhaseInDir,
   extractPhaseToken,
